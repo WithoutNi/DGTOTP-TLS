@@ -1,0 +1,1 @@
+/usr/bin/c++ CMakeFiles/client.dir/tls/client.cpp.o -o client  libdgtotp_lib.a /usr/lib/x86_64-linux-gnu/libssl.so /usr/lib/x86_64-linux-gnu/libcrypto.so /usr/lib/x86_64-linux-gnu/libgmp.so -lcrypto++ 

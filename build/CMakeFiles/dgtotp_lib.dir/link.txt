@@ -1,0 +1,2 @@
+/usr/bin/ar qc libdgtotp_lib.a CMakeFiles/dgtotp_lib.dir/src/ChameleonHash.cpp.o CMakeFiles/dgtotp_lib.dir/src/DGTOTP_PRF.cpp.o CMakeFiles/dgtotp_lib.dir/src/Member.cpp.o CMakeFiles/dgtotp_lib.dir/src/MerkleTrees.cpp.o CMakeFiles/dgtotp_lib.dir/src/Parameter.cpp.o CMakeFiles/dgtotp_lib.dir/src/RA.cpp.o CMakeFiles/dgtotp_lib.dir/src/TOTP.cpp.o CMakeFiles/dgtotp_lib.dir/src/Verifier.cpp.o CMakeFiles/dgtotp_lib.dir/src/util.cpp.o
+/usr/bin/ranlib libdgtotp_lib.a

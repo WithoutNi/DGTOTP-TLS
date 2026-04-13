@@ -1,7 +1,0 @@
-/home/wu/Desktop/DGTOTP-TLS-main/build/CMakeFiles/rebuild_cache.dir
-/home/wu/Desktop/DGTOTP-TLS-main/build/CMakeFiles/edit_cache.dir
-/home/wu/Desktop/DGTOTP-TLS-main/build/CMakeFiles/main.dir
-/home/wu/Desktop/DGTOTP-TLS-main/build/CMakeFiles/dgtotp_lib.dir
-/home/wu/Desktop/DGTOTP-TLS-main/build/CMakeFiles/verifier.dir
-/home/wu/Desktop/DGTOTP-TLS-main/build/CMakeFiles/client.dir
-/home/wu/Desktop/DGTOTP-TLS-main/build/CMakeFiles/server.dir

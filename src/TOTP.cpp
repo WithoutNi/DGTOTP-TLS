@@ -5,26 +5,37 @@
 #include <sstream>
 #include <iomanip>
 
-// Static member initialization
-int TOTP::k = Parameter::k;
-int TOTP::N = Parameter::N;
-long TOTP::Δs = Parameter::Δs;
-long TOTP::Δe = Parameter::Δe;
-std::string TOTP::VERIFY_POINT = "";
-std::string TOTP::SK_SEED = "";
-EVP_MD_CTX *TOTP::digest = nullptr;
-unsigned char TOTP::sha256[32] = {0};
-unsigned char *TOTP::cache_byte = nullptr;
+// ===================== Constructor/Destructor =====================
 
-void TOTP::getSeed(const std::string &key)
+TOTP::TOTP()
 {
-    std::string test = "testing";
-    SK_SEED = byte2hex(Hash_Sha256(test), 32);
 }
 
-void TOTP::Setup(int k, long START_TIME, long END_TIME, long PASS_GEN)
+TOTP::~TOTP()
 {
-    N = (int)((END_TIME - START_TIME) / PASS_GEN);
+    freeCacheByte();
+    if (digest != nullptr)
+    {
+        EVP_MD_CTX_free(digest);
+        digest = nullptr;
+    }
+}
+
+// ===================== Modify Methods =====================
+
+void TOTP::Setup(Parameter &params)
+{
+    // Initialize member variables using parameter instance
+    k = params.getK();
+    N = params.getN();
+    Δs = params.getDeltaS();
+    Δe = params.getDeltaE();
+    VERIFY_POINT = "";
+    SK_SEED = "";
+    digest = nullptr;
+    memset(sha256, 0, sizeof(sha256));
+    cache_byte = nullptr;
+    N = (int)((params.getEndTime() - params.getStartTime()) / params.getDeltaS());
 }
 
 std::string TOTP::PInit(const std::string &SK_SEED)
@@ -82,6 +93,55 @@ int TOTP::Verify(const std::string &VERIFY_POINT, const std::string &password, l
 
     return check_out;
 }
+
+// ===================== Access Methods =====================
+
+int TOTP::getK() const
+{
+    return k;
+}
+
+int TOTP::getN() const
+{
+    return N;
+}
+
+long TOTP::getDeltaS() const
+{
+    return Δs;
+}
+
+long TOTP::getDeltaE() const
+{
+    return Δe;
+}
+
+std::string TOTP::getVerifyPoint() const
+{
+    return VERIFY_POINT;
+}
+
+std::string TOTP::getSkSeed() const
+{
+    return SK_SEED;
+}
+
+EVP_MD_CTX *TOTP::getDigest() const
+{
+    return digest;
+}
+
+const unsigned char *TOTP::getSha256() const
+{
+    return sha256;
+}
+
+unsigned char *TOTP::getCacheByte() const
+{
+    return cache_byte;
+}
+
+// ===================== Static Methods =====================
 
 std::string TOTP::byte2hex(const unsigned char *b, size_t len)
 {

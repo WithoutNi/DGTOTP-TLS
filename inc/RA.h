@@ -9,6 +9,9 @@
 #include <cmath>
 #include <mutex>
 
+// Forward declaration
+class Parameter;
+
 /**
  * RA class - Registration Authority functionality
  */
@@ -148,13 +151,15 @@ public:
 
     /// Update group management message
     /// @param[in] time Current time
-    void GMUpdate(long time);
+    /// @param[in] params Parameter instance
+    void GMUpdate(long time, Parameter &params);
 
     /// Open member identity
     /// @param[in] password Password array
     /// @param[in] time     Current time
+    /// @param[in] params Parameter instance
     /// @return Member ID if successful, empty string otherwise
-    std::string Open(const std::vector<std::string> &password, long time);
+    std::string Open(const std::vector<std::string> &password, long time, Parameter &params);
 
     /// Process member join request
     /// @param[in] ks   Key context
@@ -182,18 +187,20 @@ public:
     /// @param[in] data_len   Data length
     /// @param[in] key        Encryption key
     /// @param[in] assocData  Associated authentication data
+    /// @param[in] nonce      AES-GCM noonce
     /// @return Encrypted ciphertext with authentication tag
     static unsigned char *ASE_enc(unsigned char *data, size_t data_len,
-                                  unsigned char *key, unsigned char *assocData);
+                                  unsigned char *key, unsigned char *assocData, unsigned char *nonce);
 
     /// AES-GCM decryption
     /// @param[in] key        Decryption key
     /// @param[in] data       Ciphertext data
     /// @param[in] data_len   Data length
     /// @param[in] assocData  Associated authentication data
+    /// @param[in] nonce      AES-GCM noonce
     /// @return Decrypted plaintext
     static unsigned char *ASE_dec(unsigned char *key, unsigned char *data,
-                                  size_t data_len, unsigned char *assocData);
+                                  size_t data_len, unsigned char *assocData, unsigned char *nonce);
 
     int getU() const { return U; }
     const std::vector<std::string> &getIDLG() const { return IDLG; }

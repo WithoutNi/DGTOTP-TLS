@@ -5,26 +5,31 @@
 #include <vector>
 #include <openssl/ec.h>
 
+// Forward declaration
+class Parameter;
+
 /**
  * Verifier class - Implements verifier functionality for DGTOTP protocol
  */
 class Verifier
 {
 public:
-    /// Current verification epoch
-    static int current_verify_epoch;
-
-    /// Sub-tree structure for verification
-    static std::vector<std::vector<std::string>> sub_tree;
-
-    /// Root of sub-tree for current verification epoch
-    static std::string verifier_root;
-
     /// Verify DGTOTP password
     /// @param[in] password DGTOTP password containing verification point, random number, and ciphertext
     /// @param[in] time     Current timestamp
+    /// @param[in] params   Parameter instance
     /// @return Verification result (1 success, 0 failure)
-    static int Verify(const std::vector<std::string> &password, long time);
+    int Verify(const std::vector<std::string> &password, long time, Parameter &params);
+
+private:
+    /// Current verification epoch
+    int current_verify_epoch;
+
+    /// Sub-tree structure for verification
+    std::vector<std::vector<std::string>> sub_tree;
+
+    /// Root of sub-tree for current verification epoch
+    std::string verifier_root;
 };
 
 #endif // VERIFIER_H

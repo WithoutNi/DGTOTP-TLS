@@ -9,18 +9,13 @@
 #include <ctime>
 #include <cmath>
 
-// Static member initialization
-int Verifier::current_verify_epoch = 0;
-std::string Verifier::verifier_root = "";
-std::vector<std::vector<std::string>> Verifier::sub_tree;
-
-int Verifier::Verify(const std::vector<std::string> &password, long time)
+int Verifier::Verify(const std::vector<std::string> &password, long time, Parameter &params)
 {
     // Get current verification epoch
-    current_verify_epoch = (int)((time - Parameter::START_TIME) / Parameter::Δe);
+    current_verify_epoch = (int)((time - params.getStartTime()) / params.getDeltaE());
 
     // Calculate password sequence number
-    int pw_sequence = (time - current_verify_epoch * Parameter::Δe - Parameter::START_TIME) / Parameter::Δs;
+    int pw_sequence = (time - current_verify_epoch * params.getDeltaE() - params.getStartTime()) / params.getDeltaS();
 
     // Get TOTP verification point (byte array)
     unsigned char *cache_tem = TOTP::toBytes(password[0]);
@@ -38,9 +33,9 @@ int Verifier::Verify(const std::vector<std::string> &password, long time)
 
     // Get permuted MPI Id index
     int per_id_index = 0;
-    for (int j = 0; j < Parameter::U; j++)
+    for (int j = 0; j < params.getU(); j++)
     {
-        if (Parameter::Member_cipher[j] == password[2])
+        if (params.getMemberCipher()[j] == password[2])
         {
             per_id_index = j;
             // printf("per_id_index=%d\n", per_id_index);
@@ -49,44 +44,48 @@ int Verifier::Verify(const std::vector<std::string> &password, long time)
 
     // Calculate chameleon hash value
     unsigned char *vp_bytes = Parameter::Sha256(vp + password[2] + std::to_string(current_verify_epoch));
-    int vp_point = ChameleonHash::eval(vp_bytes, 32, Parameter::CH_key[per_id_index],
+    int vp_point = ChameleonHash::eval(vp_bytes, 32, params.getChKey()[per_id_index],
                                        (unsigned char *)password[1].c_str(), password[1].length());
 
     // Verify chameleon hash value
-    if (vp_point != Parameter::CH_hash[per_id_index])
+    if (vp_point != params.getChHash()[per_id_index])
     {
         std::cout << "ChameleonHash eval Error!" << std::endl;
-        std::cout << "In verify, CH_hash[" << per_id_index << "]= " << Parameter::CH_hash[per_id_index] << std::endl;
+        std::cout << "In verify, CH_hash[" << per_id_index << "]= " << params.getChHash()[per_id_index] << std::endl;
         free(cache_tem);
         free(vp_bytes);
         return 0;
     }
 
-    std::vector<std::string> ch_hash(Parameter::U);
-    for (int i = 0; i < Parameter::U; i++)
+    std::vector<std::string> ch_hash(params.getU());
+    for (int i = 0; i < params.getU(); i++)
     {
-        ch_hash[i] = std::to_string(Parameter::CH_hash[i]);
+        ch_hash[i] = std::to_string(params.getChHash()[i]);
     }
-    sub_tree.resize((int)ceil(log2(Parameter::U)), std::vector<std::string>(Parameter::U));
-    sub_tree = MerkleTrees::get_tree(ch_hash);
+    // sub_tree.resize((int)ceil(log2(params.getU())), std::vector<std::string>(params.getU()));
     MerkleTrees merkle_tree(ch_hash);
+    // sub_tree = merkle_tree.get_tree(ch_hash);
     merkle_tree.merkle_tree();
     verifier_root = merkle_tree.getRoot();
 
     // TOTP Verify
-    if (TOTP::Verify(vp, password[0], pw_sequence) != 1)
+    TOTP totp;
+    totp.Setup(params);
+    int res1 = totp.Verify(vp, password[0], pw_sequence);
+    if (res1 != 1)
     {
         std::cout << "TOTP verify Error!" << std::endl;
-        std::cout << "TOTP verify result: " << TOTP::Verify(vp, password[0], pw_sequence) << std::endl;
+        std::cout << "TOTP verify result: " << res1 << std::endl;
         free(cache_tem);
         free(vp_bytes);
         return 0;
     }
     // Merkle tree Verify
-    if (MerkleTrees::Verify(Parameter::merkle_proof, verifier_root, Parameter::gpk, current_verify_epoch) != 1)
+    int res2 = merkle_tree.Verify(params.getMerkleProof(), verifier_root, params.getGpk(), current_verify_epoch);
+    if (res2 != 1)
     {
         std::cout << "merkle trees verify Error!" << std::endl;
-        std::cout << "merkle trees verify result: " << MerkleTrees::Verify(Parameter::merkle_proof, verifier_root, Parameter::gpk, current_verify_epoch) << std::endl;
+        std::cout << "merkle trees verify result: " << res2 << std::endl;
         free(cache_tem);
         free(vp_bytes);
         return 0;

@@ -5,67 +5,89 @@
 #include <openssl/sha.h>
 #include <openssl/evp.h>
 
+// Forward declaration
+class Parameter;
+
 /**
  * TOTP class - Time-based One-Time Password algorithm
  */
 class TOTP
 {
 public:
-    /// Security parameter
-    static int k;
+    // ===================== Constructor/Destructor =====================
 
-    /// Number of passwords in TOTP instance
-    static int N;
+    /// Constructor
+    TOTP();
 
-    /// TOTP instance start time
-    static long Δs;
+    /// Destructor
+    ~TOTP();
 
-    /// TOTP instance end time
-    static long Δe;
-
-    /// Verification point
-    static std::string VERIFY_POINT;
-
-    /// Password seed
-    static std::string SK_SEED;
-
-    /// SHA256 context
-    static EVP_MD_CTX *digest;
-
-    /// SHA256 hash result
-    static unsigned char sha256[32];
-
-    /// Cache byte array
-    static unsigned char *cache_byte;
-
-    /// Generate seed from key
-    /// @param[in] key Input key
-    static void getSeed(const std::string &key);
+    // ===================== Modify Methods =====================
 
     /// Configure TOTP parameters
-    /// @param[in] k          Security parameter
-    /// @param[in] START_TIME Start time
-    /// @param[in] END_TIME   End time
-    /// @param[in] PASS_GEN   Password generation period
-    static void Setup(int k, long START_TIME, long END_TIME, long PASS_GEN);
+    /// @param[in] params Parameter instance
+    void Setup(Parameter &params);
 
     /// Initialize TOTP instance
     /// @param[in] SK_SEED Password seed
     /// @return Verification point
-    static std::string PInit(const std::string &SK_SEED);
+    std::string PInit(const std::string &SK_SEED);
 
     /// Generate TOTP password
     /// @param[in] SK_SEED      Password seed
     /// @param[in] pw_sequence  Password sequence number
     /// @return Generated TOTP password
-    static std::string PGen(const std::string &SK_SEED, long pw_sequence);
+    std::string PGen(const std::string &SK_SEED, long pw_sequence);
 
     /// Verify TOTP password
     /// @param[in] VERIFY_POINT Verification point
     /// @param[in] password     Password to verify
     /// @param[in] pw_sequence  Password sequence number
     /// @return Verification result (1 success, 0 failure)
-    static int Verify(const std::string &VERIFY_POINT, const std::string &password, long pw_sequence);
+    int Verify(const std::string &VERIFY_POINT, const std::string &password, long pw_sequence);
+
+    // ===================== Access Methods =====================
+
+    /// Get security parameter
+    /// @return Security parameter
+    int getK() const;
+
+    /// Get number of passwords in TOTP instance
+    /// @return Number of passwords
+    int getN() const;
+
+    /// Get TOTP instance start time
+    /// @return Start time
+    long getDeltaS() const;
+
+    /// Get TOTP instance end time
+    /// @return End time
+    long getDeltaE() const;
+
+    /// Get verification point
+    /// @return Verification point
+    std::string getVerifyPoint() const;
+
+    /// Get password seed
+    /// @return Password seed
+    std::string getSkSeed() const;
+
+    /// Get SHA256 context
+    /// @return SHA256 context
+    EVP_MD_CTX *getDigest() const;
+
+    /// Get SHA256 hash result
+    /// @return SHA256 hash result
+    const unsigned char *getSha256() const;
+
+    /// Get cache byte array
+    /// @return Cache byte array
+    unsigned char *getCacheByte() const;
+
+    /// Free cache byte array memory
+    void freeCacheByte();
+
+    // ===================== Static Methods =====================
 
     /// Convert byte array to hexadecimal string
     /// @param[in] b   Byte array
@@ -89,8 +111,35 @@ public:
     /// @return Hash result
     static unsigned char *Hash_Sha256(const std::string &message);
 
-    /// Free cache byte array memory
-    static void freeCacheByte();
+private:
+    // ===================== Member Variables =====================
+
+    /// Security parameter
+    int k;
+
+    /// Number of passwords in TOTP instance
+    int N;
+
+    /// TOTP instance start time
+    long Δs;
+
+    /// TOTP instance end time
+    long Δe;
+
+    /// Verification point
+    std::string VERIFY_POINT;
+
+    /// Password seed
+    std::string SK_SEED;
+
+    /// SHA256 context
+    EVP_MD_CTX *digest;
+
+    /// SHA256 hash result
+    unsigned char sha256[32];
+
+    /// Cache byte array
+    unsigned char *cache_byte;
 };
 
 #endif // TOTP_H

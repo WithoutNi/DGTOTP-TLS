@@ -5,30 +5,24 @@
 #include <cmath>
 #include <algorithm>
 
-// Static member initialization
-EVP_MD_CTX *MerkleTrees::digest = nullptr;
-
 MerkleTrees::MerkleTrees(const std::vector<std::string> &txList)
 {
     this->txList = txList;
     this->root = "";
-
-    if (digest == nullptr)
-    {
-        digest = EVP_MD_CTX_new();
-    }
 }
 
-MerkleTrees::~MerkleTrees() {}
+MerkleTrees::~MerkleTrees()
+{
+}
 
 void MerkleTrees::merkle_tree()
 {
     std::vector<std::string> tempTxList = txList;
-    std::vector<std::string> newTxList = getNewTxList(tempTxList);
+    std::vector<std::string> newTxList = this->getNewTxList(tempTxList);
 
     while (newTxList.size() != 1)
     {
-        newTxList = getNewTxList(newTxList);
+        newTxList = this->getNewTxList(newTxList);
     }
 
     root = newTxList[0];
@@ -64,7 +58,7 @@ std::vector<std::string> MerkleTrees::getNewTxList(const std::vector<std::string
     return newTxList;
 }
 
-int MerkleTrees::Verify(std::vector<std::string> &proof, const std::string &verify_point,
+int MerkleTrees::Verify(std::vector<std::string> &proof, const std::string &root_verify_point,
                         const std::string &root, int index)
 {
     std::string re_root;
@@ -78,7 +72,7 @@ int MerkleTrees::Verify(std::vector<std::string> &proof, const std::string &veri
     {
         if (proof[i] == "")
         {
-            proof[i] = verify_point;
+            proof[i] = root_verify_point;
             vp_index = i;
             break;
         }
@@ -201,7 +195,7 @@ std::vector<std::string> MerkleTrees::Get_Proof(const std::vector<std::vector<st
     return proof_list;
 }
 
-std::string MerkleTrees::getRoot()
+std::string MerkleTrees::getRoot() const
 {
     return this->root;
 }

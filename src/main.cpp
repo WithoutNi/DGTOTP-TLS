@@ -23,84 +23,105 @@ long getCurrentTimeMillis()
 }
 
 // 测试DGTOTP系统
-void testDGTOTP()
+void testDGTOTP(int instanceCount)
 {
     std::cout << "初始化DGTOTP系统..." << std::endl;
 
     // 设置安全参数
     int k = 128;
 
-    // 初始化RA
-    std::vector<RA> RAVec;
-    for (int i = 0; i < 1; i++)
+    if (instanceCount <= 0)
     {
-        RA RAi;
-        Parameter::init();
-        RAi.RASetup(k, Parameter::G, Parameter::U, Parameter::START_TIME, Parameter::END_TIME, Parameter::Δe, Parameter::Δs);
-        RAVec.push_back(RAi);
+        std::cout << "实例数量需大于0，当前值: " << instanceCount << std::endl;
+        return;
     }
-    std::cout << "first RA instance设置完成，群组公钥: " << RAVec[0].getGpk() << std::endl;
 
-    // 获取当前时间
-    long currentTime = getCurrentTimeMillis();
-    std::cout << "当前时间戳: " << currentTime << std::endl;
+    // 按可变参数创建多套实例
+    std::vector<Parameter> paramsVec(instanceCount);
+    std::vector<RA> raVec(instanceCount);
+    std::vector<Member> memberVec(instanceCount);
+    std::vector<std::string> memberIdVec;
+    memberIdVec.reserve(instanceCount);
 
-    // 创建成员
-    Member member1;
-    std::string memberId = "uer1";
-
-    member1.PInit(memberId);
-
-    // 成员加入
-    std::cout << "----Join Result:----" << std::endl;
-    std::vector<unsigned char *> Ax = RAVec[0].Join(nullptr, memberId, currentTime);
-    std::cout << "ID of the join member: " << member1.ID_MENBER << std::endl;
-    std::cout << "Ks of the join member: ";
-    printBytes(Ax[0], 16);
-    std::cout << std::endl; // 假设16字节
-    std::cout << "Alpha ID of the join member: ";
-    printBytes(Ax[1], 4);
-    std::cout << std::endl; // 假设4字节
-    std::cout << std::endl;
-
-    // 生成DGTOTP密码
-    std::cout << "----PwGen Result:----" << std::endl;
-    std::vector<std::string> password = member1.PwGen(Ax, currentTime); // 修改为无参数的PwGen
-    std::cout << "TOTP password: " << password[0] << std::endl;
-    std::cout << "Chameleon Hash collision: " << string_to_hex(password[1]) << std::endl;
-    std::cout << "Identity ciphertext: " << string_to_hex(password[2]) << std::endl;
-    std::cout << std::endl;
-
-    // 更新群组管理消息
-    std::cout << "----GMUpdate Result:----" << std::endl;
-    RAVec[0].GMUpdate(Parameter::START_TIME);
-    std::cout << "GMUpdate runs successfully" << std::endl;
-    std::cout << std::endl;
-
-    // 验证DGTOTP密码
-    std::cout << "----Verify Result:----" << std::endl;
-    Verifier verifier;
-    int verifyResult = verifier.Verify(password, currentTime);
-    std::cout << "Verify result for the correct password and verify epoch: " << (verifyResult == 1 ? "success" : "failure") << std::endl;
-    std::cout << std::endl;
-
-    // 打开成员身份
-    std::cout << "----Open Result:----" << std::endl;
-    std::string openResult = RAVec[0].Open(password, currentTime);
-    std::cout << "Open ID for the correct password and verify epoch: " << openResult << std::endl;
-    std::cout << std::endl;
-
-    // 测试撤销
-    std::cout << "----Revoke Result:----" << std::endl;
-    int revokeResult = RAVec[0].Revoke(memberId, nullptr);
-    std::cout << "Revoke registered member " << memberId << (revokeResult == 1 ? " success" : " failure") << std::endl;
-
-    // 释放资源
-    free(Ax[0]);
-    free(Ax[1]);
-    for (int i = 0; i < RAVec.size(); i++)
+    for (int idx = 0; idx < instanceCount; idx++)
     {
-        RAVec[i].cleanup();
+        paramsVec[idx].init();
+        std::string memberId = "uer" + std::to_string(idx + 1);
+        memberIdVec.push_back(memberId);
+
+        raVec[idx].RASetup(k, paramsVec[idx].getG(), paramsVec[idx].getU(),
+                           paramsVec[idx].getStartTime(), paramsVec[idx].getEndTime(),
+                           paramsVec[idx].getDeltaE(), paramsVec[idx].getDeltaS());
+        memberVec[idx].PInit(memberId, paramsVec[idx]);
+    }
+
+    for (int idx = 0; idx < instanceCount; idx++)
+    {
+        Parameter &params = paramsVec[idx];
+        RA &ra = raVec[idx];
+        Member &member = memberVec[idx];
+        const std::string &memberId = memberIdVec[idx];
+
+        std::cout << "===== 实例 " << (idx + 1) << " =====" << std::endl;
+        std::cout << "RA设置完成，群组公钥: " << ra.getGpk() << std::endl;
+
+        long currentTime = getCurrentTimeMillis();
+        std::cout << "当前时间戳: " << currentTime << std::endl;
+
+        // Join
+        std::cout << "----Join Result:----" << std::endl;
+        std::vector<unsigned char *> Ax = ra.Join(nullptr, memberId, currentTime);
+        std::cout << "ID of the join member: " << member.getID() << std::endl;
+        std::cout << "Ks of the join member: ";
+        printBytes(Ax[0], 16);
+        std::cout << std::endl;
+        std::cout << "Alpha ID of the join member: ";
+        printBytes(Ax[1], 4);
+        std::cout << std::endl
+                  << std::endl;
+
+        // PwGen
+        std::cout << "----PwGen Result:----" << std::endl;
+        std::vector<std::string> password = member.PwGen(Ax, currentTime, params);
+        std::cout << "TOTP password: " << password[0] << std::endl;
+        std::cout << "Chameleon Hash collision: " << string_to_hex(password[1]) << std::endl;
+        std::cout << "Identity ciphertext: " << string_to_hex(password[2]) << std::endl;
+        std::cout << std::endl;
+
+        // GMUpdate
+        std::cout << "----GMUpdate Result:----" << std::endl;
+        ra.GMUpdate(params.getStartTime(), params);
+        std::cout << "GMUpdate runs successfully" << std::endl;
+        std::cout << std::endl;
+
+        // Verify
+        std::cout << "----Verify Result:----" << std::endl;
+        Verifier verifier;
+        int verifyResult = verifier.Verify(password, currentTime, params);
+        std::cout << "Verify result for the correct password and verify epoch: "
+                  << (verifyResult == 1 ? "success" : "failure") << std::endl;
+        std::cout << std::endl;
+
+        // Open
+        std::cout << "----Open Result:----" << std::endl;
+        std::string openResult = ra.Open(password, currentTime, params);
+        std::cout << "Open ID for the correct password and verify epoch: " << openResult << std::endl;
+        std::cout << std::endl;
+
+        // Revoke
+        std::cout << "----Revoke Result:----" << std::endl;
+        int revokeResult = ra.Revoke(memberId, nullptr);
+        std::cout << "Revoke registered member " << memberId << (revokeResult == 1 ? " success" : " failure") << std::endl;
+        std::cout << std::endl;
+
+        free(Ax[0]);
+        free(Ax[1]);
+    }
+
+    for (int idx = 0; idx < instanceCount; idx++)
+    {
+        raVec[idx].cleanup();
+        paramsVec[idx].cleanup();
     }
 }
 
@@ -111,8 +132,8 @@ int main()
 
     try
     {
-        testDGTOTP();
-        Parameter::cleanup();
+        int instanceCount = 2;
+        testDGTOTP(instanceCount);
         ChameleonHash::cleanup();
     }
     catch (const std::exception &e)

@@ -143,10 +143,11 @@ void RA::RASetup(int security_parameter, std::string group_name, int group_membe
     }
 
     // Generate merkle proofs for tree containing subtree roots
-    std::vector<std::vector<std::string>> root_tree = MerkleTrees::get_tree(SMT);
+    MerkleTrees root_tree_builder(SMT);
+    std::vector<std::vector<std::string>> root_tree = root_tree_builder.get_tree(SMT);
     for (int i = 0; i < E; i++)
     {
-        merkle_proof[i] = MerkleTrees::Get_Proof(root_tree, SMT[i], i);
+        merkle_proof[i] = root_tree_builder.Get_Proof(root_tree, SMT[i], i);
     }
 
     // Group public key
@@ -181,7 +182,7 @@ std::vector<int> RA::Permutation(unsigned int random_seed)
     return list;
 }
 
-void RA::GMUpdate(long time)
+void RA::GMUpdate(long time, Parameter &params)
 {
     int instance_index = (int)((time - START_TIME) / Δe);
 
@@ -232,9 +233,9 @@ void RA::GMUpdate(long time)
         free(result);
 
         // Chameleon hash setup
-        Parameter::chame_hash->Setup(rk);
-        public_key[i] = Parameter::chame_hash->clonePublicKey();
-        EC_POINT_free(Parameter::chame_hash->pk);
+        params.getChameHash()->Setup(rk);
+        public_key[i] = params.getChameHash()->clonePublicKey();
+        EC_POINT_free(params.getChameHash()->pk);
 
         // Chameleon hash eval
         V[i] = ChameleonHash::eval(dvp, byte_size, public_key[i], rd, byte_size);
@@ -263,7 +264,7 @@ void RA::GMUpdate(long time)
             free(cache_tem);
             continue;
         }
-        unsigned char *cipher = ASE_enc(id_bytes, 4, ke, re);
+        unsigned char *cipher = ASE_enc(id_bytes, 4, ke, re, params.getNonce());
 
         if (!cipher)
         {
@@ -300,24 +301,25 @@ void RA::GMUpdate(long time)
     std::vector<std::string> proof = merkle_proof[instance_index];
 
     // Proof length
-    Parameter::proof_len = proof.size();
+    params.setProofLen(proof.size());
 
     // Subtree root proof
-    Parameter::merkle_proof = proof;
+    params.setMerkleProof(proof);
 
     // Subtree nodes
-    Parameter::CH_hash = per_V;
+    params.setChHash(per_V);
 
     // ID ciphertexts
-    Parameter::Member_cipher = per_ciphertext;
+    params.setMemberCipher(per_ciphertext);
 
     // Chameleon hash public keys
-    Parameter::CH_key = per_public_key;
+    params.setChKey(per_public_key);
 
     // Group public key
-    Parameter::gpk = gpk;
+    params.setGpk(gpk);
 
-    MerkleTrees::Verify(Parameter::merkle_proof, SMT[instance_index], SMT[instance_index], instance_index);
+    MerkleTrees verifier_tree(SMT);
+    verifier_tree.Verify(params.getMerkleProof(), SMT[instance_index], SMT[instance_index], instance_index);
 
     // Clean up resources
     free(dvp);
@@ -325,13 +327,13 @@ void RA::GMUpdate(long time)
     free(rk);
 }
 
-std::string RA::Open(const std::vector<std::string> &password, long time)
+std::string RA::Open(const std::vector<std::string> &password, long time, Parameter &params)
 {
     // Get permuted MPI Id index
     per_id_index = 0;
     for (int j = 0; j < U; j++)
     {
-        if (Parameter::Member_cipher[j] == password[2])
+        if (params.getMemberCipher()[j] == password[2])
         {
             per_id_index = j;
             break;
@@ -339,7 +341,7 @@ std::string RA::Open(const std::vector<std::string> &password, long time)
     }
 
     verify_epoch = (int)((time - START_TIME) / Δe);
-    current_verify_epoch = (int)((std::time(nullptr) * 1000 - Parameter::START_TIME) / Parameter::Δe);
+    current_verify_epoch = (int)((std::time(nullptr) * 1000 - params.getStartTime()) / params.getDeltaE());
 
     if (verify_epoch != current_verify_epoch)
     {
@@ -366,7 +368,7 @@ std::string RA::Open(const std::vector<std::string> &password, long time)
 
     // "ISO-8859-1" string -> byte array chameleon hash eval
     int vp_point = ChameleonHash::eval(vp_bytes, 32,
-                                       Parameter::CH_key[per_table[verify_epoch][per_id_index]],
+                                       params.getChKey()[per_table[verify_epoch][per_id_index]],
                                        (unsigned char *)password[1].c_str(), password[1].length());
 
     // Permutation
@@ -377,8 +379,11 @@ std::string RA::Open(const std::vector<std::string> &password, long time)
     free(cache_tem);
 
     // TOTP.verify && Merkle.verify
-    if (MerkleTrees::Verify(Parameter::merkle_proof, SMT[verify_epoch], Parameter::gpk, verify_epoch) == 1 &&
-        TOTP::Verify(vp, password[0], pw_sequence) == 1)
+    TOTP totp;
+    totp.Setup(params);
+    MerkleTrees verifier_tree(SMT);
+    if (verifier_tree.Verify(params.getMerkleProof(), SMT[verify_epoch], params.getGpk(), verify_epoch) == 1 &&
+        totp.Verify(vp, password[0], pw_sequence) == 1)
     {
 
         cache_tem = DGTOTP_PRF::ksAES(G + "KS" + std::to_string(per_table[verify_epoch][per_id_index]), ks_cipher);
@@ -387,7 +392,7 @@ std::string RA::Open(const std::vector<std::string> &password, long time)
         unsigned char *re = DGTOTP_PRF::jdkAES("Rand" + std::to_string(verify_epoch), cache_tem);
 
         // Decrypt identity ciphertext
-        unsigned char *id_bytes = ASE_dec(ke, (unsigned char *)Parameter::Member_cipher[per_id_index].c_str(), Parameter::Member_cipher[per_id_index].length(), re);
+        unsigned char *id_bytes = ASE_dec(ke, (unsigned char *)params.getMemberCipher()[per_id_index].c_str(), params.getMemberCipher()[per_id_index].length(), re, params.getNonce());
 
         int ID_plain = Parameter::bytesToInt(id_bytes);
 
@@ -405,7 +410,7 @@ std::string RA::Open(const std::vector<std::string> &password, long time)
 }
 
 unsigned char *RA::ASE_enc(unsigned char *data, size_t data_len,
-                           unsigned char *key, unsigned char *assocData)
+                           unsigned char *key, unsigned char *assocData, unsigned char *nonce)
 {
     // Add stricter validation
     if (!data || !key || !assocData)
@@ -425,7 +430,7 @@ unsigned char *RA::ASE_enc(unsigned char *data, size_t data_len,
     EVP_CIPHER_CTX_init(ctx);
 
     // Set GCM mode
-    EVP_EncryptInit_ex(ctx, EVP_aes_128_gcm(), nullptr, key, Parameter::nonce);
+    EVP_EncryptInit_ex(ctx, EVP_aes_128_gcm(), nullptr, key, nonce);
 
     int outlen;
     unsigned char *buf = (unsigned char *)malloc(16 + EVP_MAX_BLOCK_LENGTH);
@@ -458,7 +463,7 @@ unsigned char *RA::ASE_enc(unsigned char *data, size_t data_len,
 }
 
 unsigned char *RA::ASE_dec(unsigned char *key, unsigned char *data,
-                           size_t data_len, unsigned char *assocData)
+                           size_t data_len, unsigned char *assocData, unsigned char *nonce)
 {
     // Add stricter validation
     if (!data || !key || !assocData)
@@ -478,7 +483,7 @@ unsigned char *RA::ASE_dec(unsigned char *key, unsigned char *data,
     EVP_CIPHER_CTX_init(ctx);
 
     // Set GCM mode
-    EVP_DecryptInit_ex(ctx, EVP_aes_128_gcm(), nullptr, key, Parameter::nonce);
+    EVP_DecryptInit_ex(ctx, EVP_aes_128_gcm(), nullptr, key, nonce);
 
     int outlen;
     unsigned char *buf = (unsigned char *)malloc(16 + EVP_MAX_BLOCK_LENGTH);

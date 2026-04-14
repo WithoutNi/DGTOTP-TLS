@@ -8,40 +8,106 @@
 
 // Forward declaration
 class ChameleonHash;
+class Parameter;
 
 /// Member class - Implements group member functionality
 class Member
 {
 public:
+    /// Constructor
+    Member();
+
+    /// Destructor
+    ~Member();
+
+    /// Initialize member
+    /// @param[in] ID Member ID
+    /// @param[in] params Parameter instance
+    void PInit(const std::string &ID, Parameter &params);
+
+    /// Get password seed for current verification period
+    /// @param[in] SECRET_KEY Encryption key
+    /// @param[in] time Current time
+    unsigned char *GetSD(EVP_CIPHER_CTX *SECRET_KEY, long time);
+
+    /// Generate passwords
+    /// @param[in] Ax Parameters
+    /// @param[in] time Current time
+    /// @param[in] params Parameter instance
+    std::vector<std::string> PwGen(std::vector<unsigned char *> &Ax, long time, Parameter &params);
+
+    /// Convert byte array to hexadecimal string
+    /// @param[in] b Byte array
+    /// @param[in] len Array length
+    static std::string byte2hex(const unsigned char *b, size_t len);
+
+    // ===================== Access Methods =====================
+
+    /// Get security parameter k
+    /// @return Security parameter
+    int getK() const;
+
+    /// Get number of passwords in TOTP instance
+    /// @return Number of passwords
+    int getN() const;
+
+    /// Get number of TOTP protocol instances
+    /// @return Number of TOTP instances
+    int getE() const;
+
+    /// Get start time
+    /// @return Start time
+    long getStartTime() const;
+
+    /// Get end time
+    /// @return End time
+    long getEndTime() const;
+
+    /// Get password generation period
+    /// @return Password generation period
+    int getDeltaS() const;
+
+    /// Get verification period
+    /// @return Verification period
+    int getDeltaE() const;
+
+    /// Get ID transformation identity bytes
+    /// @return Alpha bytes
+    unsigned char *getAlpha() const;
+
+    /// Get Member identifier string
+    std::string getID() const;
+
+private:
     /// Member identifier string
     std::string ID_MENBER;
 
     /// ID transformation identity bytes
-    static unsigned char *alpha;
+    unsigned char *alpha;
 
     /// Encryption key context (kt)
     EVP_CIPHER_CTX *SECRET_KEY;
 
     /// Security parameter k
-    static int k;
+    int k;
 
     /// Number of passwords in TOTP instance
-    static int N;
+    int N;
 
     /// Number of TOTP protocol instances
-    static int E;
+    int E;
 
     /// Start time (timestamp)
-    static long START_TIME;
+    long START_TIME;
 
     /// End time (timestamp)
-    static long END_TIME;
+    long END_TIME;
 
     /// Password generation period (delta s)
-    static int Δs;
+    int Δs;
 
     /// Verification period (delta e)
-    static int Δe;
+    int Δe;
 
     /// Secret seed string sd
     std::string SECRET_SEED;
@@ -72,31 +138,6 @@ public:
 
     /// Chameleon hash collision random bytes
     unsigned char *rand;
-
-    /// Constructor
-    Member();
-
-    /// Destructor
-    ~Member();
-
-    /// Initialize member
-    /// @param[in] ID Member ID
-    void PInit(const std::string &ID);
-
-    /// Get password seed for current verification period
-    /// @param[in] SECRET_KEY Encryption key
-    /// @param[in] time Current time
-    unsigned char *GetSD(EVP_CIPHER_CTX *SECRET_KEY, long time);
-
-    /// Generate passwords
-    /// @param[in] Ax Parameters
-    /// @param[in] time Current time
-    std::vector<std::string> PwGen(std::vector<unsigned char *> &Ax, long time);
-
-    /// Convert byte array to hexadecimal string
-    /// @param[in] b Byte array
-    /// @param[in] len Array length
-    static std::string byte2hex(const unsigned char *b, size_t len);
 };
 
 #endif // MEMBER_H

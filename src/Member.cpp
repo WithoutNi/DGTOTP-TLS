@@ -12,27 +12,15 @@
 #include <openssl/rand.h>
 #include <gmp.h>
 
-// Static member initialization
-unsigned char *Member::alpha = nullptr;
-int Member::k = 0;
-int Member::N = 0;
-int Member::E = 0;
-long Member::START_TIME = 0;
-long Member::END_TIME = 0;
-int Member::Δs = 0;
-int Member::Δe = 0;
-
+// Constructor - initialize all member variables
 Member::Member()
+    : alpha(nullptr), k(0), N(0), E(0), START_TIME(0), END_TIME(0), Δs(0), Δe(0),
+      cache_byte(nullptr), chame_hash(nullptr), SECRET_KEY(nullptr), ks(nullptr),
+      ks_cipher(nullptr), key_cipher(nullptr)
 {
-    cache_byte = nullptr;
     memset(cache_32, 0, 32);
     rand = (unsigned char *)malloc(32);
     memset(rand, 0, 32);
-    chame_hash = nullptr;
-    SECRET_KEY = nullptr;
-    ks = nullptr;
-    ks_cipher = nullptr;
-    key_cipher = nullptr;
 }
 
 Member::~Member()
@@ -73,17 +61,16 @@ Member::~Member()
     }
 }
 
-void Member::PInit(const std::string &ID)
+void Member::PInit(const std::string &ID, Parameter &params)
 {
     // Parameter initialization
-    Parameter::init();
-    START_TIME = Parameter::START_TIME;
-    END_TIME = Parameter::END_TIME;
-    E = Parameter::E;
-    N = Parameter::N;
-    k = Parameter::k;
-    Δs = Parameter::Δs;
-    Δe = Parameter::Δe;
+    START_TIME = params.getStartTime();
+    END_TIME = params.getEndTime();
+    E = params.getE();
+    N = params.getN();
+    k = params.getK();
+    Δs = params.getDeltaS();
+    Δe = params.getDeltaE();
 
     // Generate key
     SECRET_KEY = EVP_CIPHER_CTX_new();
@@ -117,7 +104,7 @@ unsigned char *Member::GetSD(EVP_CIPHER_CTX *SECRET_KEY, long time)
     return result;
 }
 
-std::vector<std::string> Member::PwGen(std::vector<unsigned char *> &Ax, long time)
+std::vector<std::string> Member::PwGen(std::vector<unsigned char *> &Ax, long time, Parameter &params)
 {
     // DGTOTP passwords
     std::vector<std::string> DGTOTP_pw(3);
@@ -139,7 +126,9 @@ std::vector<std::string> Member::PwGen(std::vector<unsigned char *> &Ax, long ti
     int pw_sequence = (time - instance_index * Δe - START_TIME) / Δs;
 
     // TOTP password
-    cache_string = TOTP::PGen(cache_string, pw_sequence);
+    TOTP totp;
+    totp.Setup(params);
+    cache_string = totp.PGen(cache_string, pw_sequence);
     DGTOTP_pw[0] = cache_string;
 
     // Cache chameleon hash collision and identity ciphertext
@@ -161,13 +150,13 @@ std::vector<std::string> Member::PwGen(std::vector<unsigned char *> &Ax, long ti
     unsigned char *re = DGTOTP_PRF::ksAES("Rand" + std::to_string(instance_index), ks_cipher);
 
     // Identity ciphertext
-    unsigned char *cipher = RA::ASE_enc(Ax[1], 4, ke, re);
+    unsigned char *cipher = RA::ASE_enc(Ax[1], 4, ke, re, params.getNonce());
     DGTOTP_pw[2] = std::string(reinterpret_cast<char *>(cipher), 20);
     cipher_id = DGTOTP_pw[2];
 
     // Chameleon hash sk
-    unsigned char *part1 = DGTOTP_PRF::ksAES(Parameter::G + "CHR" + std::to_string(instance_index), ks_cipher);
-    unsigned char *part2 = DGTOTP_PRF::ksAES(Parameter::G + "CHR" + std::to_string(instance_index), ks_cipher);
+    unsigned char *part1 = DGTOTP_PRF::ksAES(params.getG() + "CHR" + std::to_string(instance_index), ks_cipher);
+    unsigned char *part2 = DGTOTP_PRF::ksAES(params.getG() + "CHR" + std::to_string(instance_index), ks_cipher);
     unsigned char *result = Parameter::byteMerger(part1, 16, part2, 16);
     memcpy(cache_32, result, 32);
     free(result);
@@ -188,25 +177,25 @@ std::vector<std::string> Member::PwGen(std::vector<unsigned char *> &Ax, long ti
     unsigned char *verify_point = Parameter::Sha256(vp + DGTOTP_pw[2] + std::to_string(instance_index));
 
     // Virtual verification point
-    unsigned char *part3 = DGTOTP_PRF::ksAES(Parameter::G + "DVP" + std::to_string(instance_index), ks_cipher);
-    unsigned char *part4 = DGTOTP_PRF::ksAES(Parameter::G + "DVP" + std::to_string(instance_index), ks_cipher);
+    unsigned char *part3 = DGTOTP_PRF::ksAES(params.getG() + "DVP" + std::to_string(instance_index), ks_cipher);
+    unsigned char *part4 = DGTOTP_PRF::ksAES(params.getG() + "DVP" + std::to_string(instance_index), ks_cipher);
     unsigned char *dvp = Parameter::byteMerger(part3, 16, part4, 16);
 
     // rand
-    unsigned char *part5 = DGTOTP_PRF::ksAES(Parameter::G + "DR" + std::to_string(instance_index), ks_cipher);
-    unsigned char *part6 = DGTOTP_PRF::ksAES(Parameter::G + "DR" + std::to_string(instance_index), ks_cipher);
+    unsigned char *part5 = DGTOTP_PRF::ksAES(params.getG() + "DR" + std::to_string(instance_index), ks_cipher);
+    unsigned char *part6 = DGTOTP_PRF::ksAES(params.getG() + "DR" + std::to_string(instance_index), ks_cipher);
     unsigned char *rd = Parameter::byteMerger(part5, 16, part6, 16);
 
     // Chameleon hash collision
-    Parameter::chame_hash->Setup(cache_32);
-    unsigned char *r = ChameleonHash::Collision(dvp, 32, rd, 32, verify_point, 32, Parameter::chame_hash->sk);
+    params.getChameHash()->Setup(cache_32);
+    unsigned char *r = ChameleonHash::Collision(dvp, 32, rd, 32, verify_point, 32, params.getChameHash()->sk);
     memcpy(rand, r, 32);
-    int hash_vp = ChameleonHash::eval(verify_point, 32, Parameter::chame_hash->pk, rand, 32);
-    if (hash_vp == ChameleonHash::eval(dvp, 32, Parameter::chame_hash->pk, rd, 32))
+    int hash_vp = ChameleonHash::eval(verify_point, 32, params.getChameHash()->pk, rand, 32);
+    if (hash_vp == ChameleonHash::eval(dvp, 32, params.getChameHash()->pk, rd, 32))
     {
         printf("\nCollision success");
     }
-    EC_POINT_free(Parameter::chame_hash->pk);
+    EC_POINT_free(params.getChameHash()->pk);
 
     // Byte array to string
     DGTOTP_pw[1] = std::string(reinterpret_cast<char *>(rand), 32);
@@ -241,4 +230,51 @@ std::string Member::byte2hex(const unsigned char *b, size_t len)
     }
 
     return ss.str();
+}
+
+// ===================== Getter Methods =====================
+
+int Member::getK() const
+{
+    return k;
+}
+
+int Member::getN() const
+{
+    return N;
+}
+
+int Member::getE() const
+{
+    return E;
+}
+
+long Member::getStartTime() const
+{
+    return START_TIME;
+}
+
+long Member::getEndTime() const
+{
+    return END_TIME;
+}
+
+int Member::getDeltaS() const
+{
+    return Δs;
+}
+
+int Member::getDeltaE() const
+{
+    return Δe;
+}
+
+unsigned char *Member::getAlpha() const
+{
+    return alpha;
+}
+
+std::string Member::getID() const
+{
+    return ID_MENBER;
 }

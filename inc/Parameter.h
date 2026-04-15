@@ -29,8 +29,14 @@ public:
 
     // ===================== Modify Methods =====================
 
-    /// Initialize system parameters
-    void init();
+    /// Initialize system parameters using the current local time
+    /// @param[in] groupId group identifier
+    void init(const std::string &groupId = "DGTOTP");
+
+    /// Initialize system parameters using an explicit shared start time
+    /// @param[in] groupId        group identifier
+    /// @param[in] startTimestamp shared protocol start time in milliseconds
+    void init(const std::string &groupId, long startTimestamp);
 
     /// Clean up allocated resources
     void cleanup();

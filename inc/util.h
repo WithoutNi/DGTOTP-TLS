@@ -66,4 +66,9 @@ std::string string_to_hex(const std::string &input);
 /// @return Integer value
 size_t bytesToInt(const unsigned char *bytes);
 
+/// Return a shared protocol start time for local demos.
+/// Both server and client should call the same helper instead of generating
+/// independent timestamps inside Parameter::init().
+long getSharedProtocolStartTimeMillis();
+
 #endif

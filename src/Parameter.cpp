@@ -24,22 +24,27 @@ Parameter::~Parameter()
     cleanup();
 }
 
-void Parameter::init()
+void Parameter::init(const std::string &groupId)
+{
+    init(groupId, time(nullptr) * 1000);
+}
+
+void Parameter::init(const std::string &groupId, long startTimestamp)
 {
     // Initialize OpenSSL
     OpenSSL_add_all_algorithms();
 
-    G = "DGTOTP";
+    G = groupId;
 
     // Initialize chameleon hash
     chame_hash = new ChameleonHash();
     chame_hash->init();
 
     E = 2;
-    U = 1178;
+    U = 10;
 
-    // Get current time as start time
-    START_TIME = time(nullptr) * 1000; // Convert to milliseconds
+    // Use the caller-provided shared start time
+    START_TIME = startTimestamp;
     END_TIME = START_TIME + E * Δe;
     N = 60;
 
@@ -129,6 +134,7 @@ void Parameter::cleanup()
     // Clean up chameleon hash instance
     if (chame_hash != nullptr)
     {
+        chame_hash->cleanup();
         delete chame_hash;
         chame_hash = nullptr;
     }
@@ -211,6 +217,7 @@ void Parameter::setChameHash(ChameleonHash *chameleon)
 {
     if (chame_hash != nullptr)
     {
+        chame_hash->cleanup();
         delete chame_hash;
     }
     chame_hash = chameleon;

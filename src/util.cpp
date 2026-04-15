@@ -7,6 +7,7 @@
 #include <iostream>
 #include <sstream>
 #include <iomanip>
+#include <chrono>
 
 std::string ComGen(const std::vector<std::string> &pw,
                    unsigned char *finmsg,
@@ -201,4 +202,16 @@ size_t bytesToInt(const unsigned char *bytes)
     value |= (bytes[3] & 0xFF) << 24;
 
     return (size_t)value;
+}
+
+long getSharedProtocolStartTimeMillis()
+{
+    using namespace std::chrono;
+
+    const long sync_window_ms = 10 * 60 * 1000;
+    const long now_ms = duration_cast<milliseconds>(
+                            system_clock::now().time_since_epoch())
+                            .count();
+
+    return (now_ms / sync_window_ms) * sync_window_ms;
 }

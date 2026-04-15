@@ -41,29 +41,25 @@ long getCurrentTimeMillis()
 }
 
 // Calculate DGTOTP password
-std::vector<std::string> PwGen(std::string memberId, std::vector<unsigned char *> Ax)
+std::vector<std::string> PwGen(const std::string &memberId, std::vector<unsigned char *> &Ax, Parameter &params, long currentTime)
 {
     std::cout << "Calculate DGTOTP password..." << std::endl;
-
-    // Get current time
-    long currentTime = getCurrentTimeMillis();
     std::cout << "Current timestamp: " << currentTime << std::endl;
 
     // Create member
     Member member1;
-    member1.PInit(memberId);
+    member1.PInit(memberId, params);
 
     // Generate DGTOTP password
     std::cout << "Generate DGTOTP password..." << std::endl;
-    std::vector<std::string> password = member1.PwGen(Ax, currentTime);
+    std::vector<std::string> password = member1.PwGen(Ax, currentTime, params);
 
     return password;
 }
 
-std::string SGGen(unsigned char ki[], size_t key_len, size_t alpha_ID)
+std::string SGGen(unsigned char ki[], size_t key_len, size_t alpha_ID, Parameter &params, long time)
 {
-    long time = getCurrentTimeMillis();
-    int j = (int)((time - Parameter::START_TIME) / Parameter::Δe);
+    int j = (int)((time - params.getStartTime()) / params.getDeltaE());
     printf("ki=");
     for (size_t i = 0; i < key_len; i++)
     {
@@ -166,11 +162,15 @@ int main()
     SSL_CTX *ctx, *ctx1;
     int server_sockfd, verifier_sockfd;
     struct sockaddr_in server_addr, verifier_addr;
+    Parameter params;
+    const std::string sgId = "DGTOTP";
+    const long sharedStartTime = getSharedProtocolStartTimeMillis();
 
     // Initialize OpenSSL
     SSL_library_init();
     OpenSSL_add_all_algorithms();
     SSL_load_error_strings();
+    params.init(sgId, sharedStartTime);
 
     // TLS connection with server
     // Create SSL context
@@ -321,10 +321,11 @@ int main()
         // Prepare data to send
         try
         {
-            password = PwGen(memberId, Ax);
+            const long protocolTime = getCurrentTimeMillis();
+            password = PwGen(memberId, Ax, params, protocolTime);
             size_t alpha_ID = bytesToInt(Ax[1]);
             printf("alpha_ID: %ld\n", alpha_ID);
-            SG = SGGen(Ax[0], 16, alpha_ID);
+            SG = SGGen(Ax[0], 16, alpha_ID, params, protocolTime);
             printf("fin_msg:%ld bytes\n", fin_msg_len);
             for (size_t i = 0; i < fin_msg_len; i++)
             {
@@ -422,8 +423,7 @@ int main()
     // Clean up resources
     free(Ax[0]);
     free(Ax[1]);
-    Parameter::cleanup();
-    ChameleonHash::cleanup();
+    params.cleanup();
 
     return 0;
 }

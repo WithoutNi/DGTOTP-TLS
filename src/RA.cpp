@@ -24,7 +24,8 @@ void RA::RASetup(int security_parameter, std::string group_name, int group_membe
     k = security_parameter;
 
     // Chameleon hash setup
-    ChameleonHash::init();
+    ChameleonHash chameleon;
+    chameleon.init();
 
     // Parameter initialization
     G = group_name;
@@ -108,7 +109,7 @@ void RA::RASetup(int security_parameter, std::string group_name, int group_membe
             ch.Setup(rk);
 
             // Generate permuted merkle subtree nodes
-            CH_hash[i][j] = ChameleonHash::eval(dvp, byte_size, ch.pk, rd, byte_size);
+            CH_hash[i][j] = ch.eval(dvp, byte_size, ch.getPk(), rd, byte_size);
         }
 
         free(cache_tem);
@@ -235,10 +236,9 @@ void RA::GMUpdate(long time, Parameter &params)
         // Chameleon hash setup
         params.getChameHash()->Setup(rk);
         public_key[i] = params.getChameHash()->clonePublicKey();
-        EC_POINT_free(params.getChameHash()->pk);
 
         // Chameleon hash eval
-        V[i] = ChameleonHash::eval(dvp, byte_size, public_key[i], rd, byte_size);
+        V[i] = params.getChameHash()->eval(dvp, byte_size, public_key[i], rd, byte_size);
 
         // Compute ID ciphertext
         unsigned char *ke = DGTOTP_PRF::jdkAES("KeyGen" + std::to_string(instance_index), cache_tem);
@@ -367,9 +367,9 @@ std::string RA::Open(const std::vector<std::string> &password, long time, Parame
     unsigned char *vp_bytes = Parameter::Sha256(vp + password[2] + std::to_string(verify_epoch));
 
     // "ISO-8859-1" string -> byte array chameleon hash eval
-    int vp_point = ChameleonHash::eval(vp_bytes, 32,
-                                       params.getChKey()[per_table[verify_epoch][per_id_index]],
-                                       (unsigned char *)password[1].c_str(), password[1].length());
+    int vp_point = params.getChameHash()->eval(vp_bytes, 32,
+                                               params.getChKey()[per_table[verify_epoch][per_id_index]],
+                                               (unsigned char *)password[1].c_str(), password[1].length());
 
     // Permutation
     cache_tem = DGTOTP_PRF::ksAES(G + "PM" + std::to_string(verify_epoch), ks_cipher);

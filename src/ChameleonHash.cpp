@@ -7,25 +7,23 @@
 #include <iostream>
 #include <openssl/sha.h>
 
-// Initialize static members
-EC_POINT *ChameleonHash::G = nullptr;
-mpz_t ChameleonHash::p;
-mpz_t ChameleonHash::N;
-EC_GROUP *ChameleonHash::group = nullptr;
-
 ChameleonHash::ChameleonHash()
 {
     mpz_init(sk);
+    mpz_init(p);
+    mpz_init(N);
+    G = nullptr;
     pk = nullptr;
+    group = nullptr;
+    init();
 }
 
 ChameleonHash::~ChameleonHash()
 {
+    cleanup();
     mpz_clear(sk);
-    if (pk != nullptr)
-    {
-        EC_POINT_free(pk);
-    }
+    mpz_clear(p);
+    mpz_clear(N);
 }
 
 void ChameleonHash::init()
@@ -45,16 +43,14 @@ void ChameleonHash::init()
 
     // Convert BIGNUM to mpz_t
     unsigned char order_bytes[32];
-    BN_bn2bin(order, order_bytes);
-    mpz_init(N);
+    BN_bn2binpad(order, order_bytes, 32);
     mpz_import(N, 32, 1, 1, 0, 0, order_bytes);
 
     // Get finite field modulus p
     BIGNUM *p_bn = BN_new();
     EC_GROUP_get_curve_GFp(group, p_bn, nullptr, nullptr, nullptr);
     unsigned char p_bytes[32];
-    BN_bn2bin(p_bn, p_bytes);
-    mpz_init(p);
+    BN_bn2binpad(p_bn, p_bytes, 32);
     mpz_import(p, 32, 1, 1, 0, 0, p_bytes);
 
     BN_free(order);
@@ -63,6 +59,8 @@ void ChameleonHash::init()
 
 void ChameleonHash::Setup(unsigned char *rk)
 {
+    init();
+
     // Set private key sk
     mpz_t temp;
     mpz_init(temp);
@@ -72,10 +70,22 @@ void ChameleonHash::Setup(unsigned char *rk)
 
     // Compute public key pk = sk * G
     BIGNUM *sk_bn = BN_new();
-    unsigned char sk_bytes[32];
+    unsigned char sk_bytes[32] = {0};
     size_t count;
     mpz_export(sk_bytes, &count, 1, 1, 0, 0, sk);
-    BN_bin2bn(sk_bytes, count, sk_bn);
+    if (count == 0)
+    {
+        BN_zero(sk_bn);
+    }
+    else
+    {
+        BN_bin2bn(sk_bytes, count, sk_bn);
+    }
+
+    if (pk != nullptr)
+    {
+        EC_POINT_free(pk);
+    }
 
     pk = EC_POINT_new(group);
     EC_POINT_mul(group, pk, sk_bn, nullptr, nullptr, nullptr);
@@ -85,8 +95,6 @@ void ChameleonHash::Setup(unsigned char *rk)
 
 void ChameleonHash::getRand(mpz_t result)
 {
-    mpz_init(result);
-
     unsigned char data[32];
     RAND_bytes(data, 32);
 
@@ -97,6 +105,8 @@ void ChameleonHash::getRand(mpz_t result)
 int ChameleonHash::eval(unsigned char *msg, size_t msg_len,
                         EC_POINT *pk, unsigned char *rand, size_t rand_len)
 {
+    init();
+
     if (!msg || !pk || !rand || !group)
         return 0;
 
@@ -173,7 +183,7 @@ int ChameleonHash::Verify(unsigned char *msg1, size_t msg1_len, unsigned char *r
 unsigned char *ChameleonHash::Collision(unsigned char *msg1, size_t msg1_len,
                                         unsigned char *r1, size_t r1_len,
                                         unsigned char *msg2, size_t msg2_len,
-                                        mpz_t sk)
+                                        mpz_srcptr sk)
 {
     // Convert messages and r1 to mpz_t
     mpz_t m1, m2, r1_mpz;
@@ -231,7 +241,12 @@ EC_POINT *ChameleonHash::clonePublicKey() const
 
 void ChameleonHash::cleanup()
 {
-    // Clean EC_POINT
+    if (pk != nullptr)
+    {
+        EC_POINT_free(pk);
+        pk = nullptr;
+    }
+
     if (G != nullptr)
     {
         EC_POINT_free(G);
@@ -244,15 +259,34 @@ void ChameleonHash::cleanup()
         EC_GROUP_free(group);
         group = nullptr;
     }
+}
 
-    // Clean GMP variables
-    if (N != nullptr)
-    {
-        mpz_clear(N);
-    }
+mpz_srcptr ChameleonHash::getSk() const
+{
+    return sk;
+}
 
-    if (p != nullptr)
-    {
-        mpz_clear(p);
-    }
+EC_POINT *ChameleonHash::getG() const
+{
+    return G;
+}
+
+EC_POINT *ChameleonHash::getPk() const
+{
+    return pk;
+}
+
+mpz_srcptr ChameleonHash::getP() const
+{
+    return p;
+}
+
+mpz_srcptr ChameleonHash::getOrder() const
+{
+    return N;
+}
+
+EC_GROUP *ChameleonHash::getGroup() const
+{
+    return group;
 }

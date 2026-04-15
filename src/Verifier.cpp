@@ -44,8 +44,8 @@ int Verifier::Verify(const std::vector<std::string> &password, long time, Parame
 
     // Calculate chameleon hash value
     unsigned char *vp_bytes = Parameter::Sha256(vp + password[2] + std::to_string(current_verify_epoch));
-    int vp_point = ChameleonHash::eval(vp_bytes, 32, params.getChKey()[per_id_index],
-                                       (unsigned char *)password[1].c_str(), password[1].length());
+    int vp_point = params.getChameHash()->eval(vp_bytes, 32, params.getChKey()[per_id_index],
+                                               (unsigned char *)password[1].c_str(), password[1].length());
 
     // Verify chameleon hash value
     if (vp_point != params.getChHash()[per_id_index])

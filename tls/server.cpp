@@ -39,10 +39,10 @@ long getCurrentTimeMillis()
     return std::chrono::duration_cast<std::chrono::milliseconds>(duration).count();
 }
 
-std::string SGGen(unsigned char ki[], size_t key_len, size_t alpha_ID)
+std::string SGGen(unsigned char ki[], size_t key_len, size_t alpha_ID, Parameter &params)
 {
     long time = getCurrentTimeMillis();
-    int j = (int)((time - Parameter::START_TIME) / Parameter::Δe);
+    int j = (int)((time - params.getStartTime()) / params.getDeltaE());
 
     unsigned char kij[32];
     // index=current epoch index
@@ -94,6 +94,7 @@ void configure_context(SSL_CTX *ctx)
 // Function implementation
 std::vector<std::vector<unsigned char>> MacGen(
     RA &ra,
+    Parameter &params,
     const unsigned char *received_msg,
     size_t received_msg_len)
 {
@@ -110,7 +111,7 @@ std::vector<std::vector<unsigned char>> MacGen(
     size_t alpha_ID;
     std::vector<unsigned char> shared_key;
     unsigned char kij[16];
-    int current_epoch_j = (int)((currentTime - Parameter::START_TIME) / Parameter::Δe);
+    int current_epoch_j = (int)((currentTime - params.getStartTime()) / params.getDeltaE());
     std::string SG;
     unsigned char SG_hex[2 * SG_LENGTH];
     // Get shared key store instance
@@ -149,7 +150,7 @@ std::vector<std::vector<unsigned char>> MacGen(
 
             // 3. Generate SG and compare
             alpha_ID = bytesToInt(Ax[1]);
-            SG = SGGen(Ax[0], 16, alpha_ID);
+            SG = SGGen(Ax[0], 16, alpha_ID, params);
             // just need compare SG_LENGTH length
             if (memcmp(SG_hex, SG.c_str(), 2 * SG_LENGTH) == 0)
             {
@@ -229,16 +230,18 @@ int main()
 
     // Set security parameter
     int k = 128;
+    const std::string sgId = "DGTOTP";
+    const long sharedStartTime = getSharedProtocolStartTimeMillis();
+
     // Initialize RA
     RA ra; // Create RA instance
-    Parameter::init();
-    ra.RASetup(k, Parameter::G, Parameter::U, Parameter::START_TIME, Parameter::END_TIME, Parameter::Δe, Parameter::Δs);
+    Parameter params;
+    params.init(sgId, sharedStartTime);
+    ra.RASetup(k, params.getG(), params.getU(), params.getStartTime(), params.getEndTime(), params.getDeltaE(), params.getDeltaS());
     std::cout << "RA group public key: " << ra.getGpk() << std::endl;
 
     long currentTime = getCurrentTimeMillis();
     std::cout << "current time: " << currentTime << std::endl;
-
-    ra.GMUpdate(Parameter::START_TIME);
 
     // Create SSL context
     ctx = create_context();
@@ -284,7 +287,8 @@ int main()
                 memberId = bytesToString((const char *)content, content_len);
                 std::cout << "memberId_string: " << memberId << std::endl;
 
-                std::vector<unsigned char *> Ax = ra.Join(nullptr, memberId, currentTime);
+                const long joinTime = getCurrentTimeMillis();
+                std::vector<unsigned char *> Ax = ra.Join(nullptr, memberId, joinTime);
                 size_t alphaID = bytesToInt(Ax[1]);
                 RA::AS::getInstance().storeKey(alphaID, Ax[0], 16);
                 std::cout << "Ks of the join member: ";
@@ -388,7 +392,7 @@ int main()
                     }
                     printf("\n");
 
-                    std::vector<std::vector<unsigned char>> macs = MacGen(ra, received_msg, received_msg_len);
+                    std::vector<std::vector<unsigned char>> macs = MacGen(ra, params, received_msg, received_msg_len);
                     // Calculate total bytes
                     size_t total_size = 0;
                     for (const auto &mac : macs)
@@ -437,9 +441,11 @@ int main()
                     std::cout << "Chameleon Hash: " << string_to_hex(password[1]) << std::endl;
                     std::cout << "Identity Ciphertext: " << string_to_hex(password[2]) << std::endl;
 
-                    // Verify DGTOTP password
+                    // Verify DGTOTP password using a fresh timestamp and current epoch metadata.
+                    const long verifyTime = getCurrentTimeMillis();
+                    ra.GMUpdate(verifyTime, params);
                     Verifier verifier;
-                    int verifyResult = verifier.Verify(password, currentTime);
+                    int verifyResult = verifier.Verify(password, verifyTime, params);
                     std::cout << "Verify result for the correct password and verify epoch: " << (verifyResult == 1 ? "success" : "failure") << std::endl;
                     std::cout << std::endl;
 
@@ -472,14 +478,12 @@ int main()
     SSL_shutdown(verifier_ssl);
     SSL_free(verifier_ssl);
     close(client_fd1);
-
     SSL_CTX_free(ctx1);
     close(verifier_sockfd);
 
     // Clean up resources
     ra.cleanup();
-    Parameter::cleanup();
-    ChameleonHash::cleanup();
+    params.cleanup();
 
     return 0;
 }

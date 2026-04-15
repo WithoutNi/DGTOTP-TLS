@@ -42,10 +42,11 @@ void testDGTOTP(int instanceCount)
     std::vector<Member> memberVec(instanceCount);
     std::vector<std::string> memberIdVec;
     memberIdVec.reserve(instanceCount);
+    const long sharedStartTime = getSharedProtocolStartTimeMillis();
 
     for (int idx = 0; idx < instanceCount; idx++)
     {
-        paramsVec[idx].init();
+        paramsVec[idx].init("DGTOTP", sharedStartTime);
         std::string memberId = "uer" + std::to_string(idx + 1);
         memberIdVec.push_back(memberId);
 
@@ -90,7 +91,7 @@ void testDGTOTP(int instanceCount)
 
         // GMUpdate
         std::cout << "----GMUpdate Result:----" << std::endl;
-        ra.GMUpdate(params.getStartTime(), params);
+        ra.GMUpdate(currentTime, params);
         std::cout << "GMUpdate runs successfully" << std::endl;
         std::cout << std::endl;
 
@@ -134,7 +135,6 @@ int main()
     {
         int instanceCount = 2;
         testDGTOTP(instanceCount);
-        ChameleonHash::cleanup();
     }
     catch (const std::exception &e)
     {

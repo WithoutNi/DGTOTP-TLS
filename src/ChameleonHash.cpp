@@ -105,8 +105,6 @@ void ChameleonHash::getRand(mpz_t result)
 int ChameleonHash::eval(unsigned char *msg, size_t msg_len,
                         EC_POINT *pk, unsigned char *rand, size_t rand_len)
 {
-    init();
-
     if (!msg || !pk || !rand || !group)
         return 0;
 

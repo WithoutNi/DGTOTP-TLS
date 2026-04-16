@@ -4,9 +4,16 @@
 #include <cstring>
 #include <string>
 #include <vector>
+#include <sstream>
+#include <iomanip>
 
 #define ID_LENGTH 16
 #define SG_LENGTH 1
+#define SG_NUM (1 << (8 * SG_LENGTH))
+
+/// Public subgroup key shared by client/server when computing subgroup IDs.
+/// SGId = PRF(k_sg, ID), truncated to SG_LENGTH bytes.
+extern const unsigned char k_sg[16];
 
 /// Generate commitment from password and finished message
 /// @param[in] password    Password vector
@@ -31,6 +38,14 @@ void prf1(unsigned char *out, size_t outlen, unsigned char *ki, size_t key_len, 
 /// @param[in]  key_len  Key length
 /// @param[in]  index    Integer index
 void prf(unsigned char *out, size_t outlen, unsigned char *ki, size_t key_len, int index);
+
+/// Compute subgroup identifier SGId for selecting the corresponding params/RA instance.
+/// The PRF output is folded into the range [0，2^（8*SG_LENGTH)).
+/// @param[in] subgroup_key Key material used to derive the subgroup identifier
+/// @param[in] key_len      Subgroup key length
+/// @param[in] id           Member identity string
+/// @return Integer subgroup identifier in [0, 2^(8*SG_LENGTH))
+int SGIdGen(const unsigned char *subgroup_key, size_t key_len, const std::string &id);
 
 /// Convert byte array to string
 /// @param[in] data   Byte array
@@ -65,6 +80,12 @@ std::string string_to_hex(const std::string &input);
 /// @param[in] bytes Byte array (must be at least 4 bytes)
 /// @return Integer value
 size_t bytesToInt(const unsigned char *bytes);
+
+/// Convert integer to fixed-width hexadecimal string
+/// @param[in] value Integer value to be converted
+/// @param[in] width Output width (in hex digits), padded with leading zeros if necessary
+/// @return Hexadecimal string representation of the input value (lowercase, without "0x" prefix)
+std::string intToHex(int value, int width);
 
 /// Return a shared protocol start time for local demos.
 /// Both server and client should call the same helper instead of generating

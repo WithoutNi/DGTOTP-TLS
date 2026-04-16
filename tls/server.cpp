@@ -4,9 +4,6 @@
 #include <vector>
 #include <ctime>
 #include <chrono>
-#include <random>
-#include <algorithm>
-
 #include <unistd.h>
 #include <arpa/inet.h>
 
@@ -95,6 +92,8 @@ void configure_context(SSL_CTX *ctx)
 std::vector<std::vector<unsigned char>> MacGen(
     RA &ra,
     Parameter &params,
+    const unsigned char *ki,
+    size_t ki_len,
     const unsigned char *received_msg,
     size_t received_msg_len)
 {
@@ -104,18 +103,13 @@ std::vector<std::vector<unsigned char>> MacGen(
         throw std::runtime_error("Received message too short");
     }
 
-    unsigned char ID[ID_LENGTH];
-    std::string memberId;
-    long currentTime = getCurrentTimeMillis();
-    std::vector<unsigned char *> Ax;
-    size_t alpha_ID;
-    std::vector<unsigned char> shared_key;
+    if (ki == nullptr || ki_len == 0)
+    {
+        throw std::runtime_error("Shared key is empty");
+    }
+
     unsigned char kij[16];
-    int current_epoch_j = (int)((currentTime - params.getStartTime()) / params.getDeltaE());
-    std::string SG;
     unsigned char SG_hex[2 * SG_LENGTH];
-    // Get shared key store instance
-    auto &SKeys = RA::AS::getInstance();
 
     // Safe copy
     memcpy(SG_hex, received_msg + 2 * 64, 2 * SG_LENGTH);
@@ -131,86 +125,18 @@ std::vector<std::vector<unsigned char>> MacGen(
     unsigned char mac[16];
     std::vector<unsigned char> mac_vector;
     std::vector<std::vector<unsigned char>> mac_collection;
-    int Z = 0;
-    int count = ra.getU() - 1;
-    const auto &IDLG = ra.getIDLG();
-    for (int j = 0; j < count; j++)
-    {
-        // 1. Generate random ID
-        RAND_bytes(ID, ID_LENGTH);
-        memberId = bytesToHex(ID, ID_LENGTH);
-        if (IDLG[j] == memberId)
-        {
-            continue;
-        }
-        else
-        {
-            // 2. Perform Join operation to get shared key
-            Ax = ra.Join(nullptr, memberId, currentTime);
+    long time1 = getCurrentTimeMillis();
+    int current_epoch_j = (int)((time1 - params.getStartTime()) / params.getDeltaE());
+    prf(kij, 16, const_cast<unsigned char *>(ki), ki_len, current_epoch_j);
+    prf1(k_mac, 16, kij, 16, SG_hex, 2 * SG_LENGTH);
+    prf1(mac, 16, k_mac, 16, received_msg, received_msg_len);
 
-            // 3. Generate SG and compare
-            alpha_ID = bytesToInt(Ax[1]);
-            SG = SGGen(Ax[0], 16, alpha_ID, params);
-            // just need compare SG_LENGTH length
-            if (memcmp(SG_hex, SG.c_str(), 2 * SG_LENGTH) == 0)
-            {
-                // 4. Store shared key
-                SKeys.storeKey(alpha_ID, Ax[0], 16);
-            }
-            // Clean up memory - adjust according to actual allocation method
-            if (Ax[0] != nullptr)
-            {
-                delete[] Ax[0];
-                Ax[0] = nullptr;
-            }
-            if (Ax[1] != nullptr)
-            {
-                delete[] Ax[1];
-                Ax[1] = nullptr;
-            }
-        }
-    }
-
-    // First get all alpha IDs
-    std::vector<size_t> alphaIDVec = SKeys.getAllAlphaIDs();
-    Z = alphaIDVec.size();
-    std::cout << "Z=" << Z << std::endl;
+    std::cout << "mac: ";
+    printBytes(mac, 16);
     std::cout << std::endl;
-    for (const auto &alphaID : alphaIDVec)
-    {
-        std::cout << "Found member assign number=" << alphaID << std::endl;
 
-        // 5. Get shared key
-        shared_key = SKeys.getKey(alphaID);
-
-        // 6. Calculate kij
-        prf(kij, 16, shared_key.data(), 16, current_epoch_j);
-
-        // Immediately clean up stored key
-        // SKeys.removeKey(alphaID);
-
-        // 7. Calculate mac key
-        prf1(k_mac, 16, kij, 16, SG_hex, 2 * SG_LENGTH);
-
-        // 8. Calculate MAC
-        prf1(mac, 16, k_mac, 16, received_msg, received_msg_len);
-
-        std::cout << "mac: ";
-        printBytes(mac, 16);
-        std::cout << std::endl;
-
-        // 9. Add to MAC collection
-        mac_vector.assign(mac, mac + 16);
-        mac_collection.push_back(mac_vector);
-
-        // 10. Shuffle MAC order
-        if (mac_collection.size() > 1)
-        {
-            static std::random_device rd;
-            static std::mt19937 g(rd());
-            std::shuffle(mac_collection.begin(), mac_collection.end(), g);
-        }
-    }
+    mac_vector.assign(mac, mac + 16);
+    mac_collection.push_back(mac_vector);
 
     printf("match mac number: %ld\n", mac_collection.size());
     return mac_collection;
@@ -230,15 +156,33 @@ int main()
 
     // Set security parameter
     int k = 128;
-    const std::string sgId = "DGTOTP";
     const long sharedStartTime = getSharedProtocolStartTimeMillis();
+    const size_t subgroupCount = SG_NUM;
 
-    // Initialize RA
-    RA ra; // Create RA instance
-    Parameter params;
-    params.init(sgId, sharedStartTime);
-    ra.RASetup(k, params.getG(), params.getU(), params.getStartTime(), params.getEndTime(), params.getDeltaE(), params.getDeltaS());
-    std::cout << "RA group public key: " << ra.getGpk() << std::endl;
+    // Pre-initialize all subgroup-specific params and RA instances.
+    std::vector<Parameter> paramsVec;
+    std::vector<RA> raVec;
+    paramsVec.reserve(subgroupCount);
+    raVec.reserve(subgroupCount);
+
+    for (size_t i = 0; i < subgroupCount; ++i)
+    {
+        paramsVec.emplace_back();
+        raVec.emplace_back();
+
+        Parameter &params = paramsVec.back();
+        RA &ra = raVec.back();
+        const std::string groupName = "DGTOTP" + std::to_string(i);
+
+        params.init(groupName, sharedStartTime);
+        ra.RASetup(k, params.getG(), params.getU(),
+                   params.getStartTime(), params.getEndTime(),
+                   params.getDeltaE(), params.getDeltaS());
+
+        // std::cout << "Initialized subgroup " << i
+        //           << " with group name " << groupName << std::endl;
+        // std::cout << "RA group public key: " << ra.getGpk() << std::endl;
+    }
 
     long currentTime = getCurrentTimeMillis();
     std::cout << "current time: " << currentTime << std::endl;
@@ -260,6 +204,7 @@ int main()
     listen(client_sockfd, 5);
     std::string memberId;
     unsigned char alpha[4];
+    int selectedSGId = -1;
 
     printf("TLS 1.3 Server listening on port %d\n", CLIENT_PORT);
 
@@ -287,8 +232,17 @@ int main()
                 memberId = bytesToString((const char *)content, content_len);
                 std::cout << "memberId_string: " << memberId << std::endl;
 
+                selectedSGId = SGIdGen(k_sg, sizeof(k_sg), memberId);
+                if (selectedSGId < 0 || static_cast<size_t>(selectedSGId) >= subgroupCount)
+                {
+                    throw std::runtime_error("Computed SGId out of range");
+                }
+
+                std::cout << "Selected SGId: " << selectedSGId << std::endl;
+                std::cout << "Selected group name: " << paramsVec[selectedSGId].getG() << std::endl;
+
                 const long joinTime = getCurrentTimeMillis();
-                std::vector<unsigned char *> Ax = ra.Join(nullptr, memberId, joinTime);
+                std::vector<unsigned char *> Ax = raVec[selectedSGId].Join(nullptr, memberId, joinTime);
                 size_t alphaID = bytesToInt(Ax[1]);
                 RA::AS::getInstance().storeKey(alphaID, Ax[0], 16);
                 std::cout << "Ks of the join member: ";
@@ -331,6 +285,7 @@ int main()
     ctx1 = create_context();
     configure_context(ctx1);
     unsigned char ki_hex[32];
+    unsigned char ki[16];
     unsigned char SG_hex[2 * SG_LENGTH];
 
     // Create TCP socket
@@ -371,6 +326,8 @@ int main()
                     // extract ki
                     const unsigned char *content = (const unsigned char *)(buf + strlen("MSG:"));
                     memcpy(ki_hex, content, 32);
+                    std::vector<unsigned char> ki_vec = HexToBytes(ki_hex, 32);
+                    memcpy(ki, ki_vec.data(), 16);
 
                     // extract commiment+SG from received message (MSG:ki+commiment+SG)
                     content = content + 32;
@@ -392,7 +349,7 @@ int main()
                     }
                     printf("\n");
 
-                    std::vector<std::vector<unsigned char>> macs = MacGen(ra, params, received_msg, received_msg_len);
+                    std::vector<std::vector<unsigned char>> macs = MacGen(raVec[selectedSGId], paramsVec[selectedSGId], ki, sizeof(ki), received_msg, received_msg_len);
                     // Calculate total bytes
                     size_t total_size = 0;
                     for (const auto &mac : macs)
@@ -443,9 +400,10 @@ int main()
 
                     // Verify DGTOTP password using a fresh timestamp and current epoch metadata.
                     const long verifyTime = getCurrentTimeMillis();
-                    ra.GMUpdate(verifyTime, params);
+
+                    raVec[selectedSGId].GMUpdate(verifyTime, paramsVec[selectedSGId]);
                     Verifier verifier;
-                    int verifyResult = verifier.Verify(password, verifyTime, params);
+                    int verifyResult = verifier.Verify(password, verifyTime, paramsVec[selectedSGId]);
                     std::cout << "Verify result for the correct password and verify epoch: " << (verifyResult == 1 ? "success" : "failure") << std::endl;
                     std::cout << std::endl;
 
@@ -482,8 +440,14 @@ int main()
     close(verifier_sockfd);
 
     // Clean up resources
-    ra.cleanup();
-    params.cleanup();
+    for (RA &ra : raVec)
+    {
+        ra.cleanup();
+    }
+    for (Parameter &params : paramsVec)
+    {
+        params.cleanup();
+    }
 
     return 0;
 }

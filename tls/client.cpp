@@ -92,11 +92,10 @@ std::string SGGen(unsigned char ki[], size_t key_len, size_t alpha_ID, Parameter
     return bytesToHex(SG_bytes, SG_LENGTH, true);
 }
 
-int MACVerify(unsigned char ki[], std::string SG, std::string Com, const unsigned char *macs, size_t mac_len)
+int MACVerify(unsigned char ki[], int current_epoch_j, std::string SG, std::string Com, const unsigned char *macs, size_t mac_len)
 {
     unsigned char kij[16];
-    // assume current epoch j=0
-    prf(kij, 16, ki, 16, 0);
+    prf(kij, 16, ki, 16, current_epoch_j);
     unsigned char mac_key[16];
     prf1(mac_key, 16, kij, 16, (unsigned char *)SG.c_str(), 2 * SG_LENGTH);
     // Calculate MAC using shared key as parameter
@@ -163,14 +162,22 @@ int main()
     int server_sockfd, verifier_sockfd;
     struct sockaddr_in server_addr, verifier_addr;
     Parameter params;
-    const std::string sgId = "DGTOTP";
     const long sharedStartTime = getSharedProtocolStartTimeMillis();
+    std::string memberId;
 
     // Initialize OpenSSL
     SSL_library_init();
     OpenSSL_add_all_algorithms();
     SSL_load_error_strings();
-    params.init(sgId, sharedStartTime);
+
+    // Prepare memberId first, then derive the subgroup-specific group name.
+    unsigned char ID[ID_LENGTH];
+    RAND_bytes(ID, ID_LENGTH);
+    memberId = bytesToHex(ID, ID_LENGTH);
+
+    int SGId = SGIdGen(k_sg, sizeof(k_sg), memberId);
+    const std::string groupName = "DGTOTP" + std::to_string(SGId);
+    params.init(groupName, sharedStartTime);
 
     // TLS connection with server
     // Create SSL context
@@ -182,8 +189,6 @@ int main()
     server_addr.sin_family = AF_INET;
     server_addr.sin_port = htons(SERVER_PORT);
     inet_pton(AF_INET, VERIFIER_IP, &server_addr.sin_addr);
-
-    std::string memberId;
 
     if (connect(server_sockfd, (struct sockaddr *)&server_addr, sizeof(server_addr)))
     {
@@ -204,11 +209,8 @@ int main()
     {
         printf("Connected to server with %s\n", SSL_get_cipher(server_ssl));
 
-        // Prepare memberId to send
-        unsigned char ID[ID_LENGTH];
-        RAND_bytes(ID, ID_LENGTH);
-
-        memberId = bytesToHex(ID, ID_LENGTH);
+        std::cout << "Computed SGId: " << SGId << std::endl;
+        std::cout << "Client group name: " << groupName << std::endl;
         std::string message = "memberId:" + memberId;
 
         // Send memberId
@@ -325,7 +327,6 @@ int main()
             password = PwGen(memberId, Ax, params, protocolTime);
             size_t alpha_ID = bytesToInt(Ax[1]);
             printf("alpha_ID: %ld\n", alpha_ID);
-            SG = SGGen(Ax[0], 16, alpha_ID, params, protocolTime);
             printf("fin_msg:%ld bytes\n", fin_msg_len);
             for (size_t i = 0; i < fin_msg_len; i++)
             {
@@ -334,6 +335,7 @@ int main()
                     printf("\n");
             }
             printf("\n");
+            SG = intToHex(SGId, 2 * SG_LENGTH);
             commitment = ComGen(password, fin_msg, fin_msg_len);
 
             std::cout << "=== Calculation Complete ===" << std::endl;
@@ -381,7 +383,10 @@ int main()
                 }
                 printf("\n");
                 // verify mac
-                int result = MACVerify(Ax[0], SG, commitment, buf, bytes);
+                long time1 = getCurrentTimeMillis();
+                int current_epoch_j = (int)((time1 - params.getStartTime()) / params.getDeltaE());
+
+                int result = MACVerify(Ax[0], current_epoch_j, SG, commitment, buf, bytes);
                 if (result == 1)
                 {
                     printf("Verfiy mac success,sent DGTOTP password\n");

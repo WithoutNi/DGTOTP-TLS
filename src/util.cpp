@@ -9,6 +9,10 @@
 #include <iomanip>
 #include <chrono>
 
+const unsigned char k_sg[16] = {
+    0x44, 0x47, 0x54, 0x4F, 0x54, 0x50, 0x2D, 0x53,
+    0x47, 0x2D, 0x4B, 0x45, 0x59, 0x2D, 0x30, 0x31};
+
 std::string ComGen(const std::vector<std::string> &pw,
                    unsigned char *finmsg,
                    size_t finmsg_len)
@@ -96,6 +100,34 @@ void prf(unsigned char *out, size_t outlen, unsigned char *ki, size_t key_len, i
          hmac_result, &hmac_len);
 
     memcpy(out, hmac_result, outlen);
+}
+
+int SGIdGen(const unsigned char *subgroup_key, size_t key_len, const std::string &id)
+{
+    if (subgroup_key == nullptr)
+    {
+        throw std::invalid_argument("Null subgroup key passed to SGIdGen");
+    }
+    if (key_len == 0)
+    {
+        throw std::invalid_argument("Empty subgroup key passed to SGIdGen");
+    }
+    if (id.empty())
+    {
+        throw std::invalid_argument("Empty identity passed to SGIdGen");
+    }
+
+    unsigned char sg_id[SG_LENGTH];
+    prf1(sg_id, SG_LENGTH, const_cast<unsigned char *>(subgroup_key), key_len,
+         reinterpret_cast<const unsigned char *>(id.data()), id.size());
+
+    int result = 0;
+    for (size_t i = 0; i < SG_LENGTH; ++i)
+    {
+        result = (result << 8) | sg_id[i];
+    }
+
+    return result % static_cast<int>(SG_NUM);
 }
 
 std::string bytesToString(const char *data, size_t length)
@@ -202,6 +234,13 @@ size_t bytesToInt(const unsigned char *bytes)
     value |= (bytes[3] & 0xFF) << 24;
 
     return (size_t)value;
+}
+
+std::string intToHex(int value, int width)
+{
+    std::stringstream ss;
+    ss << std::hex << std::setw(width) << std::setfill('0') << value;
+    return ss.str();
 }
 
 long getSharedProtocolStartTimeMillis()

@@ -21,7 +21,6 @@ Parameter::Parameter()
 // Destructor
 Parameter::~Parameter()
 {
-    cleanup();
 }
 
 void Parameter::init(const std::string &groupId)
@@ -41,7 +40,7 @@ void Parameter::init(const std::string &groupId, long startTimestamp)
     chame_hash->init();
 
     E = 2;
-    U = 10;
+    U = 4;
 
     // Use the caller-provided shared start time
     START_TIME = startTimestamp;

@@ -36,23 +36,6 @@ long getCurrentTimeMillis()
     return std::chrono::duration_cast<std::chrono::milliseconds>(duration).count();
 }
 
-std::string SGGen(unsigned char ki[], size_t key_len, size_t alpha_ID, Parameter &params)
-{
-    long time = getCurrentTimeMillis();
-    int j = (int)((time - params.getStartTime()) / params.getDeltaE());
-
-    unsigned char kij[32];
-    // index=current epoch index
-    prf(kij, key_len, ki, key_len, j);
-
-    unsigned char SG_bytes[SG_LENGTH];
-    // index= user index
-    prf(SG_bytes, SG_LENGTH, kij, key_len, alpha_ID);
-
-    // Convert unsigned char array to hexadecimal string
-    return bytesToHex(SG_bytes, SG_LENGTH, true);
-}
-
 SSL_CTX *create_context()
 {
     const SSL_METHOD *method = TLS_server_method();
@@ -167,17 +150,18 @@ int main()
 
     for (size_t i = 0; i < subgroupCount; ++i)
     {
-        paramsVec.emplace_back();
-        raVec.emplace_back();
-
-        Parameter &params = paramsVec.back();
-        RA &ra = raVec.back();
         const std::string groupName = "DGTOTP" + std::to_string(i);
 
+        Parameter params;
         params.init(groupName, sharedStartTime);
+
+        RA ra;
         ra.RASetup(k, params.getG(), params.getU(),
                    params.getStartTime(), params.getEndTime(),
                    params.getDeltaE(), params.getDeltaS());
+
+        paramsVec.push_back(params);
+        raVec.push_back(ra);
 
         // std::cout << "Initialized subgroup " << i
         //           << " with group name " << groupName << std::endl;

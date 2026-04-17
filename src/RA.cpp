@@ -292,9 +292,10 @@ void RA::GMUpdate(long time, Parameter &params)
 
     for (int i = 0; i < U; i++)
     {
-        per_V[i] = V[per_table[instance_index][i]];
-        per_ciphertext[i] = ciphertext[per_table[instance_index][i]];
-        per_public_key[i] = public_key[per_table[instance_index][i]];
+        const int permuted_index = per_table[instance_index][i];
+        per_V[permuted_index] = V[i];
+        per_ciphertext[permuted_index] = ciphertext[i];
+        per_public_key[permuted_index] = public_key[i];
     }
 
     // Publish group management message
@@ -368,7 +369,7 @@ std::string RA::Open(const std::vector<std::string> &password, long time, Parame
 
     // "ISO-8859-1" string -> byte array chameleon hash eval
     int vp_point = params.getChameHash()->eval(vp_bytes, 32,
-                                               params.getChKey()[per_table[verify_epoch][per_id_index]],
+                                               params.getChKey()[per_id_index],
                                                (unsigned char *)password[1].c_str(), password[1].length());
 
     // Permutation
@@ -378,6 +379,22 @@ std::string RA::Open(const std::vector<std::string> &password, long time, Parame
     std::vector<int> regen_per_table = Permutation(seed);
     free(cache_tem);
 
+    int original_member_index = -1;
+    for (int i = 0; i < U; i++)
+    {
+        if (regen_per_table[i] == per_id_index)
+        {
+            original_member_index = i;
+            break;
+        }
+    }
+
+    if (original_member_index == -1 || vp_point != params.getChHash()[per_id_index])
+    {
+        free(vp_bytes);
+        return "";
+    }
+
     // TOTP.verify && Merkle.verify
     TOTP totp;
     totp.Setup(params);
@@ -386,7 +403,7 @@ std::string RA::Open(const std::vector<std::string> &password, long time, Parame
         totp.Verify(vp, password[0], pw_sequence) == 1)
     {
 
-        cache_tem = DGTOTP_PRF::ksAES(G + "KS" + std::to_string(per_table[verify_epoch][per_id_index]), ks_cipher);
+        cache_tem = DGTOTP_PRF::ksAES(G + "KS" + std::to_string(original_member_index), ks_cipher);
 
         unsigned char *ke = DGTOTP_PRF::jdkAES("KeyGen" + std::to_string(verify_epoch), cache_tem);
         unsigned char *re = DGTOTP_PRF::jdkAES("Rand" + std::to_string(verify_epoch), cache_tem);

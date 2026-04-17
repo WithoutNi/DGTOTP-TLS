@@ -58,66 +58,79 @@ std::vector<std::string> MerkleTrees::getNewTxList(const std::vector<std::string
     return newTxList;
 }
 
-int MerkleTrees::Verify(std::vector<std::string> &proof, const std::string &root_verify_point,
+int MerkleTrees::Verify(const std::vector<std::string> &proof, const std::string &root_verify_point,
                         const std::string &root, int index)
 {
-    std::string re_root;
-    int result = 0;
-    int vp_index = 0;
-
     std::vector<std::string> proof_tem;
+    int vp_index = -1;
 
-    // Find verification point index
     for (size_t i = 0; i < proof.size(); i++)
     {
         if (proof[i] == "")
         {
-            proof[i] = root_verify_point;
-            vp_index = i;
-            break;
-        }
-        proof_tem.push_back(proof[i]);
-    }
-
-    std::string str;
-    while (!proof_tem.empty())
-    {
-        if (proof_tem.size() == 1)
-            break;
-
-        if (index % 2 == 0)
-        {
-            str = proof_tem[vp_index] + proof_tem[vp_index + 1];
-            unsigned char *hash = Parameter::Sha256(str);
-            str = Member::byte2hex(hash, 32);
-            free(hash);
-
-            re_root = str;
-            proof_tem[vp_index] = str;
-            proof_tem.erase(proof_tem.begin() + vp_index + 1);
-
-            index = index / 2;
+            proof_tem.push_back(root_verify_point);
+            vp_index = static_cast<int>(proof_tem.size()) - 1;
         }
         else
         {
-            str = proof_tem[vp_index - 1] + proof_tem[vp_index];
-            unsigned char *hash = Parameter::Sha256(str);
-            str = Member::byte2hex(hash, 32);
-            free(hash);
-
-            re_root = str;
-            proof_tem[vp_index] = str;
-            proof_tem.erase(proof_tem.begin() + vp_index - 1);
-
-            vp_index = vp_index - 1;
-            index = index / 2;
+            proof_tem.push_back(proof[i]);
         }
     }
 
-    if (str == root)
-        result = 1;
+    if (vp_index == -1)
+    {
+        return 0;
+    }
 
-    return result;
+    std::string current = root_verify_point;
+
+    while (proof_tem.size() > 1)
+    {
+        std::string combined;
+
+        if (index % 2 == 0)
+        {
+            if (vp_index + 1 >= static_cast<int>(proof_tem.size()))
+            {
+                combined = proof_tem[vp_index];
+            }
+            else
+            {
+                combined = proof_tem[vp_index] + proof_tem[vp_index + 1];
+            }
+
+            unsigned char *hash = Parameter::Sha256(combined);
+            current = Member::byte2hex(hash, 32);
+            free(hash);
+
+            proof_tem[vp_index] = current;
+            if (vp_index + 1 < static_cast<int>(proof_tem.size()))
+            {
+                proof_tem.erase(proof_tem.begin() + vp_index + 1);
+            }
+        }
+        else
+        {
+            if (vp_index == 0)
+            {
+                return 0;
+            }
+
+            combined = proof_tem[vp_index - 1] + proof_tem[vp_index];
+
+            unsigned char *hash = Parameter::Sha256(combined);
+            current = Member::byte2hex(hash, 32);
+            free(hash);
+
+            proof_tem[vp_index] = current;
+            proof_tem.erase(proof_tem.begin() + vp_index - 1);
+            vp_index = vp_index - 1;
+        }
+
+        index = index / 2;
+    }
+
+    return current == root ? 1 : 0;
 }
 
 std::vector<std::vector<std::string>> MerkleTrees::get_tree(const std::vector<std::string> &vp_set)
@@ -182,7 +195,10 @@ std::vector<std::string> MerkleTrees::Get_Proof(const std::vector<std::vector<st
     {
         if (index % 2 == 0)
         {
-            proof_list.push_back(tree[i][index + 1]);
+            if (index + 1 < static_cast<int>(tree[i].size()) && !tree[i][index + 1].empty())
+            {
+                proof_list.push_back(tree[i][index + 1]);
+            }
             index = index / 2;
         }
         else

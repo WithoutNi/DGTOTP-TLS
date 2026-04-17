@@ -375,7 +375,7 @@ const std::vector<EC_POINT *> &Parameter::getChKey() const
     return CH_key;
 }
 
-std::vector<std::string> &Parameter::getMerkleProof()
+const std::vector<std::string> &Parameter::getMerkleProof() const
 {
     return merkle_proof;
 }

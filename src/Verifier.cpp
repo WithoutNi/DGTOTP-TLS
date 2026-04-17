@@ -38,7 +38,6 @@ int Verifier::Verify(const std::vector<std::string> &password, long time, Parame
         if (params.getMemberCipher()[j] == password[2])
         {
             per_id_index = j;
-            // printf("per_id_index=%d\n", per_id_index);
         }
     }
 

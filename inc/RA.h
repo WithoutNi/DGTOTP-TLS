@@ -8,6 +8,7 @@
 #include <map>
 #include <cmath>
 #include <mutex>
+#include <stdexcept>
 
 // Forward declaration
 class Parameter;

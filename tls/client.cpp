@@ -57,41 +57,6 @@ std::vector<std::string> PwGen(const std::string &memberId, std::vector<unsigned
     return password;
 }
 
-std::string SGGen(unsigned char ki[], size_t key_len, size_t alpha_ID, Parameter &params, long time)
-{
-    int j = (int)((time - params.getStartTime()) / params.getDeltaE());
-    printf("ki=");
-    for (size_t i = 0; i < key_len; i++)
-    {
-        printf("%02X ", ki[i]);
-        if ((i + 1) % 16 == 0)
-            printf("\n");
-    }
-    unsigned char kij[32];
-    // index=current epoch index
-    prf(kij, key_len, ki, key_len, j);
-    printf("kij=");
-    for (size_t i = 0; i < key_len; i++)
-    {
-        printf("%02X ", kij[i]);
-        if ((i + 1) % 16 == 0)
-            printf("\n");
-    }
-    unsigned char SG_bytes[SG_LENGTH];
-    // index= user index
-    prf(SG_bytes, SG_LENGTH, kij, key_len, alpha_ID);
-
-    printf("sub group identity=");
-    for (size_t i = 0; i < SG_LENGTH; i++)
-    {
-        printf("%02X ", SG_bytes[i]);
-    }
-    printf("\n");
-
-    // Convert unsigned char array to hexadecimal string
-    return bytesToHex(SG_bytes, SG_LENGTH, true);
-}
-
 int MACVerify(unsigned char ki[], int current_epoch_j, std::string SG, std::string Com, const unsigned char *macs, size_t mac_len)
 {
     unsigned char kij[16];

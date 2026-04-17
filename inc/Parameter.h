@@ -185,7 +185,7 @@ public:
 
     /// Get merkle proofs
     /// @return Merkle proofs
-    std::vector<std::string> &getMerkleProof();
+    const std::vector<std::string> &getMerkleProof() const;
 
     /// Get proof length
     /// @return Proof length

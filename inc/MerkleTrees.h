@@ -36,7 +36,7 @@ public:
     /// @param[in] root Root hash
     /// @param[in] index Node index
     /// @return Verification result (1 success, 0 failure)
-    int Verify(std::vector<std::string> &proof, const std::string &verify_point,
+    int Verify(const std::vector<std::string> &proof, const std::string &verify_point,
                const std::string &root, int index);
 
     /// Build Merkle tree structure

@@ -79,11 +79,13 @@ include_directories(
 # Source files
 set(COMMON_SOURCES
     src/ChameleonHash.cpp
+    src/DGTOTP.cpp
     src/DGTOTP_PRF.cpp
     src/Member.cpp
     src/MerkleTrees.cpp
     src/Parameter.cpp
     src/RA.cpp
+    src/AS.cpp
     src/TOTP.cpp
     src/Verifier.cpp
     src/util.cpp

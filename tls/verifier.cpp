@@ -68,17 +68,19 @@ int ComVerify(unsigned char *msg, size_t msg_len, unsigned char *fin_msg, size_t
     printf("\n");
 
     // Generate commitment
-    std::string commitment = ComGen(password, fin_msg, fin_msg_len);
+    pw_CM commitment = CMGen(password, fin_msg, fin_msg_len);
+    std::string serializedCommitment = commitment.UCM + commitment.SCM;
 
     // Debug information (optional, can be commented out in release version)
     std::cout << "TOTP Password: " << password[0] << std::endl;
     std::cout << "Chameleon Hash: " << string_to_hex(password[1]) << std::endl;
     std::cout << "Identity Ciphertext: " << string_to_hex(password[2]) << std::endl;
-    std::cout << "Commitment: " << commitment << std::endl;
+    std::cout << "UCM: " << commitment.UCM << std::endl;
+    std::cout << "SCM: " << commitment.SCM << std::endl;
     std::cout << std::endl;
 
     // Compare commitment values, memcmp returns 0 if equal
-    if (memcmp(com, commitment.c_str(), com_len) == 0)
+    if (memcmp(com, serializedCommitment.c_str(), com_len) == 0)
     {
         std::cout << "Commitment Verify Success" << std::endl;
         return 1; // Verification successful
@@ -214,7 +216,7 @@ int main()
         {
             client_msg[client_msg_length] = '\0';
             printf("Received from client: %s\n", client_msg);
-            const unsigned char *content = (const unsigned char *)(client_msg + strlen("MSG:") + 32);
+            const unsigned char *content = (const unsigned char *)(client_msg + strlen("MSG:"));
             Com_len = 2 * 2 * SHA256_DIGEST_LENGTH;
             printf("received commitment:");
             memcpy(Com, content, Com_len);

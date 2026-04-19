@@ -10,15 +10,11 @@
 #include <openssl/ssl.h>
 #include <openssl/err.h>
 #include <openssl/rand.h>
+#include <openssl/sha.h>
 
-#include "Parameter.h"
-#include "ChameleonHash.h"
-#include "MerkleTrees.h"
-#include "TOTP.h"
-#include "Member.h"
-#include "RA.h"
-#include "Verifier.h"
+#include "DGTOTP.h"
 #include "DGTOTP_PRF.h"
+#include "RA.h"
 #include "util.h"
 
 #define VERIFIER_PORT 4433
@@ -73,29 +69,26 @@ void configure_context(SSL_CTX *ctx)
 
 // Function implementation
 std::vector<std::vector<unsigned char>> MacGen(
-    RA &ra,
-    Parameter &params,
-    const unsigned char *ki,
-    size_t ki_len,
+    const Parameter &params,
+    const Skeys &shared_keys,
     const unsigned char *received_msg,
     size_t received_msg_len)
 {
+    const size_t commitment_len = 2 * SHA256_DIGEST_LENGTH * 2;
+
     // Add boundary check
-    if (received_msg_len < 2 * 64 + 2 * SG_LENGTH)
+    if (received_msg_len < commitment_len + 2 * SG_LENGTH)
     {
         throw std::runtime_error("Received message too short");
     }
 
-    if (ki == nullptr || ki_len == 0)
+    if (shared_keys.empty())
     {
-        throw std::runtime_error("Shared key is empty");
+        throw std::runtime_error("Shared key collection is empty");
     }
 
-    unsigned char kij[16];
     unsigned char SG_hex[2 * SG_LENGTH];
-
-    // Safe copy
-    memcpy(SG_hex, received_msg + 2 * 64, 2 * SG_LENGTH);
+    memcpy(SG_hex, received_msg + commitment_len, 2 * SG_LENGTH);
     std::vector<unsigned char> SG_vec = HexToBytes(SG_hex, 2 * SG_LENGTH);
     printf("sub group identity=");
     for (size_t i = 0; i < SG_LENGTH; i++)
@@ -104,22 +97,43 @@ std::vector<std::vector<unsigned char>> MacGen(
     }
     printf("\n");
 
-    unsigned char k_mac[16];
-    unsigned char mac[16];
-    std::vector<unsigned char> mac_vector;
     std::vector<std::vector<unsigned char>> mac_collection;
     long time1 = getCurrentTimeMillis();
     int current_epoch_j = (int)((time1 - params.getStartTime()) / params.getDeltaE());
-    prf(kij, 16, const_cast<unsigned char *>(ki), ki_len, current_epoch_j);
-    prf1(k_mac, 16, kij, 16, SG_hex, 2 * SG_LENGTH);
-    prf1(mac, 16, k_mac, 16, received_msg, received_msg_len);
+    std::string kg_input = std::string("KG") + std::to_string(current_epoch_j);
+    std::string kt_input = std::string("KT") + std::string(reinterpret_cast<const char *>(SG_hex), 2 * SG_LENGTH);
+    std::string tag_input = std::string("Tag") +
+                            std::string(reinterpret_cast<const char *>(received_msg), commitment_len);
 
-    std::cout << "mac: ";
-    printBytes(mac, 16);
-    std::cout << std::endl;
+    for (const auto &shared_key : shared_keys)
+    {
+        if (shared_key.key.empty())
+        {
+            continue;
+        }
 
-    mac_vector.assign(mac, mac + 16);
-    mac_collection.push_back(mac_vector);
+        unsigned char kij[16];
+        unsigned char k_mac[16];
+        unsigned char mac[16];
+
+        prf1(kij, 16, const_cast<unsigned char *>(shared_key.key.data()), shared_key.key.size(),
+             reinterpret_cast<const unsigned char *>(kg_input.data()), kg_input.size());
+        prf1(k_mac, 16, kij, 16,
+             reinterpret_cast<const unsigned char *>(kt_input.data()), kt_input.size());
+        prf1(mac, 16, k_mac, 16,
+             reinterpret_cast<const unsigned char *>(tag_input.data()), tag_input.size());
+
+        std::cout << "mac: ";
+        printBytes(mac, 16);
+        std::cout << std::endl;
+
+        mac_collection.emplace_back(mac, mac + 16);
+    }
+
+    if (mac_collection.empty())
+    {
+        throw std::runtime_error("No valid shared keys found for MAC generation");
+    }
 
     printf("match mac number: %ld\n", mac_collection.size());
     return mac_collection;
@@ -137,35 +151,25 @@ int main()
     OpenSSL_add_all_algorithms();
     SSL_load_error_strings();
 
-    // Set security parameter
-    int k = 128;
     const long sharedStartTime = getSharedProtocolStartTimeMillis();
     const size_t subgroupCount = SG_NUM;
+    const int securityParameter = 128;
+    const int groupMemberCount = 4;
+    const int verificationPeriod = 300000;
+    const int passwordGenerationPeriod = 5000;
+    const long endTime = sharedStartTime + EPOCH_COUNT * verificationPeriod;
 
-    // Pre-initialize all subgroup-specific params and RA instances.
-    std::vector<Parameter> paramsVec;
-    std::vector<RA> raVec;
-    paramsVec.reserve(subgroupCount);
-    raVec.reserve(subgroupCount);
+    // Pre-initialize all subgroup-specific DGTOTP instances.
+    std::vector<DGTOTP> dgtotpVec(subgroupCount);
+    std::vector<unsigned char *> sk_ske(subgroupCount);
+    AS as;
 
     for (size_t i = 0; i < subgroupCount; ++i)
     {
         const std::string groupName = "DGTOTP" + std::to_string(i);
-
-        Parameter params;
-        params.init(groupName, sharedStartTime);
-
-        RA ra;
-        ra.RASetup(k, params.getG(), params.getU(),
-                   params.getStartTime(), params.getEndTime(),
-                   params.getDeltaE(), params.getDeltaS());
-
-        paramsVec.push_back(params);
-        raVec.push_back(ra);
-
-        // std::cout << "Initialized subgroup " << i
-        //           << " with group name " << groupName << std::endl;
-        // std::cout << "RA group public key: " << ra.getGpk() << std::endl;
+        dgtotpVec[i].RASetup(securityParameter, groupName, groupMemberCount, sharedStartTime,
+                             endTime, verificationPeriod, passwordGenerationPeriod);
+        sk_ske[i] = DGTOTP_PRF::createKey();
     }
 
     long currentTime = getCurrentTimeMillis();
@@ -174,7 +178,6 @@ int main()
     // Create SSL context
     ctx = create_context();
     configure_context(ctx);
-    unsigned char memberId_char[16];
 
     // client-server TLS connection
     // Create TCP socket
@@ -187,7 +190,6 @@ int main()
     bind(client_sockfd, (struct sockaddr *)&server_addr, sizeof(server_addr));
     listen(client_sockfd, 5);
     std::string memberId;
-    unsigned char alpha[4];
     int selectedSGId = -1;
 
     printf("TLS 1.3 Server listening on port %d\n", CLIENT_PORT);
@@ -223,35 +225,49 @@ int main()
                 }
 
                 std::cout << "Selected SGId: " << selectedSGId << std::endl;
-                std::cout << "Selected group name: " << paramsVec[selectedSGId].getG() << std::endl;
+                std::cout << "Selected group name: " << dgtotpVec[selectedSGId].getParameter().getG() << std::endl;
 
                 const long joinTime = getCurrentTimeMillis();
-                std::vector<unsigned char *> Ax = raVec[selectedSGId].Join(nullptr, memberId, joinTime);
-                size_t alphaID = bytesToInt(Ax[1]);
-                RA::AS::getInstance().storeKey(alphaID, Ax[0], 16);
-                std::cout << "Ks of the join member: ";
-                printBytes(Ax[0], 16);
+                dgtotpVec[selectedSGId].PInit(memberId);
+                DGTOTP::JoinReceipt joinReceipt = dgtotpVec[selectedSGId].JoinAndExportReceipt(memberId, joinTime);
+                size_t alphaID = bytesToInt(joinReceipt.alpha_bytes.data());
+                Skey SkeyID;
+                SkeyID.SGId = selectedSGId;
+                SkeyID.key.resize(16);
+                std::string msg = "SK" + std::to_string(selectedSGId) + std::to_string(alphaID);
+                prf1(SkeyID.key.data(), SkeyID.key.size(),
+                     sk_ske[selectedSGId], 16,
+                     reinterpret_cast<const unsigned char *>(msg.c_str()), msg.length());
+                as.AddSkey(SkeyID);
+
+                std::cout << "RA shared key of the join member: ";
+                printBytes(joinReceipt.shared_key.data(), joinReceipt.shared_key.size());
                 std::cout << std::endl;
                 std::cout << "Alpha ID of the join member: ";
-                printBytes(Ax[1], 4);
-                memcpy(alpha, Ax[1], 4);
+                printBytes(joinReceipt.alpha_bytes.data(), joinReceipt.alpha_bytes.size());
+                std::cout << std::endl;
+                std::cout << "AS shared key of the join member: ";
+                printBytes(SkeyID.key.data(), SkeyID.key.size());
                 std::cout << std::endl;
 
-                size_t total_length = 16 + 4; // Adjust according to your actual data size
+                size_t total_length = 16 + 4 + 16;
 
                 // Create buffer and copy data
                 std::vector<unsigned char> buffer;
                 buffer.reserve(total_length);
 
                 // Copy first pointer data (16 bytes)
-                buffer.insert(buffer.end(), Ax[0], Ax[0] + 16);
+                buffer.insert(buffer.end(), joinReceipt.shared_key.begin(), joinReceipt.shared_key.end());
 
-                // Copy second pointer data (32 bytes)
-                buffer.insert(buffer.end(), Ax[1], Ax[1] + 4);
+                // Copy second pointer data (4 bytes)
+                buffer.insert(buffer.end(), joinReceipt.alpha_bytes.begin(), joinReceipt.alpha_bytes.end());
+
+                // Copy AS shared key (16 bytes)
+                buffer.insert(buffer.end(), SkeyID.key.begin(), SkeyID.key.end());
 
                 // Send actual data
                 SSL_write(client_ssl, buffer.data(), buffer.size());
-                printf("Sent share key to member\n");
+                printf("Sent RA key, alpha, and AS key to member\n");
             }
         }
     }
@@ -268,9 +284,6 @@ int main()
     // Create SSL context
     ctx1 = create_context();
     configure_context(ctx1);
-    unsigned char ki_hex[32];
-    unsigned char ki[16];
-    unsigned char SG_hex[2 * SG_LENGTH];
 
     // Create TCP socket
     verifier_sockfd = socket(AF_INET, SOCK_STREAM, 0);
@@ -307,23 +320,14 @@ int main()
                 {
                     printf("Received MSG content from verifier\n");
 
-                    // extract ki
                     const unsigned char *content = (const unsigned char *)(buf + strlen("MSG:"));
-                    memcpy(ki_hex, content, 32);
-                    std::vector<unsigned char> ki_vec = HexToBytes(ki_hex, 32);
-                    memcpy(ki, ki_vec.data(), 16);
 
-                    // extract commiment+SG from received message (MSG:ki+commiment+SG)
-                    content = content + 32;
-                    size_t content_len = bytes - strlen("MSG:") - 32;
+                    // extract commitment+SG from received message (MSG:commitment+SG)
+                    size_t content_len = bytes - strlen("MSG:");
 
-                    // Save commiment+SG
+                    // Save commitment+SG
                     memcpy(received_msg, content, content_len);
                     received_msg_len = content_len;
-
-                    content = content + 2 * 64;
-                    content_len = bytes - strlen("MSG:") - 32 - 2 * 64;
-                    memcpy(SG_hex, content, content_len);
 
                     // Print original message
                     printf("Original Received message (%zu bytes):\n", received_msg_len);
@@ -333,7 +337,9 @@ int main()
                     }
                     printf("\n");
 
-                    std::vector<std::vector<unsigned char>> macs = MacGen(raVec[selectedSGId], paramsVec[selectedSGId], ki, sizeof(ki), received_msg, received_msg_len);
+                    const Parameter &params = dgtotpVec[selectedSGId].getParameter();
+                    Skeys subgroupSharedKeys = as.QuerySkeysBySGId(selectedSGId);
+                    std::vector<std::vector<unsigned char>> macs = MacGen(params, subgroupSharedKeys, received_msg, received_msg_len);
                     // Calculate total bytes
                     size_t total_size = 0;
                     for (const auto &mac : macs)
@@ -364,37 +370,32 @@ int main()
                     // remove PW:
                     std::string pw_data = received_data.substr(3);
 
-                    std::vector<std::string> password;
-
                     // Extract using known lengths (ensure correct length)
+                    DGTOTP::Password password;
                     if (pw_data.length() >= 64 + 32 + 20)
                     {
-                        password.push_back(pw_data.substr(0, 64));       // TOTP Password
-                        password.push_back(pw_data.substr(64, 32));      // Chameleon Hash
-                        password.push_back(pw_data.substr(64 + 32, 20)); // Identity Ciphertext
+                        password.totp_password = pw_data.substr(0, 64);
+                        password.collision_randomness = pw_data.substr(64, 32);
+                        password.identity_ciphertext = pw_data.substr(64 + 32, 20);
                     }
                     else
                     {
                         throw std::runtime_error("Received password data too short");
                     }
 
-                    std::cout << "TOTP Password: " << password[0] << std::endl;
-                    std::cout << "Chameleon Hash: " << string_to_hex(password[1]) << std::endl;
-                    std::cout << "Identity Ciphertext: " << string_to_hex(password[2]) << std::endl;
+                    std::cout << "TOTP Password: " << password.totp_password << std::endl;
+                    std::cout << "Chameleon Hash: " << string_to_hex(password.collision_randomness) << std::endl;
+                    std::cout << "Identity Ciphertext: " << string_to_hex(password.identity_ciphertext) << std::endl;
 
                     // Verify DGTOTP password using a fresh timestamp and current epoch metadata.
                     const long verifyTime = getCurrentTimeMillis();
-
-                    raVec[selectedSGId].GMUpdate(verifyTime, paramsVec[selectedSGId]);
-                    Verifier verifier;
-                    int verifyResult = verifier.Verify(password, verifyTime, paramsVec[selectedSGId]);
+                    int verifyResult = dgtotpVec[selectedSGId].Verify(password, verifyTime);
                     std::cout << "Verify result for the correct password and verify epoch: " << (verifyResult == 1 ? "success" : "failure") << std::endl;
                     std::cout << std::endl;
 
-                    // open ID
-                    //  std::string openResult = ra.Open(password, currentTime);
-                    //  std::cout << "Open ID for the correct password and verify epoch: " << openResult << std::endl;
-                    //  std::cout << std::endl;
+                    std::string openResult = dgtotpVec[selectedSGId].Open(password, verifyTime);
+                    std::cout << "Open ID for the correct password and verify epoch: " << openResult << std::endl;
+                    std::cout << std::endl;
 
                     std::string response = "Verify result:";
                     if (verifyResult == 1)
@@ -422,15 +423,9 @@ int main()
     close(client_fd1);
     SSL_CTX_free(ctx1);
     close(verifier_sockfd);
-
-    // Clean up resources
-    for (RA &ra : raVec)
+    for (size_t i = 0; i < sk_ske.size(); ++i)
     {
-        ra.cleanup();
-    }
-    for (Parameter &params : paramsVec)
-    {
-        params.cleanup();
+        free(sk_ske[i]);
     }
 
     return 0;

@@ -7,9 +7,12 @@
 #include <sstream>
 #include <iomanip>
 
+#include "AS.h"
+
 #define ID_LENGTH 16
 #define SG_LENGTH 1
 #define SG_NUM (1 << (8 * SG_LENGTH))
+#define EPOCH_COUNT 2
 
 /// Public subgroup key shared by client/server when computing subgroup IDs.
 /// SGId = PRF(k_sg, ID), truncated to SG_LENGTH bytes.
@@ -19,8 +22,8 @@ extern const unsigned char k_sg[16];
 /// @param[in] password    Password vector
 /// @param[in] fin_msg     Finished message
 /// @param[in] fin_msg_len Finished message length
-/// @return Commitment hash as hexadecimal string
-std::string ComGen(const std::vector<std::string> &password, unsigned char *fin_msg, size_t fin_msg_len);
+/// @return Password commitment pair containing UCM and SCM
+pw_CM CMGen(const std::vector<std::string> &password, unsigned char *fin_msg, size_t fin_msg_len);
 
 /// Pseudo-random function with message input
 /// @param[out] out      Output buffer

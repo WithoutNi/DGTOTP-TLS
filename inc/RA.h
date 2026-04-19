@@ -5,10 +5,7 @@
 #include <vector>
 #include <openssl/evp.h>
 #include <openssl/ec.h>
-#include <map>
 #include <cmath>
-#include <mutex>
-#include <stdexcept>
 
 // Forward declaration
 class Parameter;
@@ -19,119 +16,6 @@ class Parameter;
 class RA
 {
 public:
-    // Authentication Server - Manages storage and retrieval of shared keys
-    class AS
-    {
-    private:
-        std::map<size_t, std::vector<unsigned char>> shareKeys;
-        std::mutex mutex_;
-
-        // Private constructor
-        AS() = default;
-
-    public:
-        // Delete copy constructor and assignment operator
-        AS(const AS &) = delete;
-        AS &operator=(const AS &) = delete;
-
-        // Singleton instance getter
-        static AS &getInstance()
-        {
-            static AS instance;
-            return instance;
-        }
-
-        /// Store shared key for a member
-        /// @param[in] alphaID  Member assign number
-        /// @param[in] key      Shared key data
-        /// @param[in] key_len  Key length
-        void storeKey(size_t alphaID, const unsigned char *key, size_t key_len)
-        {
-            std::lock_guard<std::mutex> lock(mutex_);
-            std::vector<unsigned char> key_vector(key, key + key_len);
-            shareKeys[alphaID] = key_vector;
-        }
-
-        /// Retrieve shared key for a member
-        /// @param[in]  alphaID Member assign number
-        /// @return Shared key as byte vector
-        /// @throws std::runtime_error if key not found
-        std::vector<unsigned char> getKey(size_t alphaID)
-        {
-            std::lock_guard<std::mutex> lock(mutex_);
-            auto it = shareKeys.find(alphaID);
-            if (it != shareKeys.end())
-            {
-                return it->second;
-            }
-            throw std::runtime_error("Shared key not found for member: " + std::to_string(alphaID));
-        }
-
-        /// Remove shared key for a member
-        /// @param[in] alphaID Member assign number
-        void removeKey(size_t alphaID)
-        {
-            std::lock_guard<std::mutex> lock(mutex_);
-            shareKeys.erase(alphaID);
-        }
-
-        /// Check if key exists for member
-        /// @param[in] alphaID Member assign number
-        /// @return true if key exists, false otherwise
-        bool hasKey(size_t alphaID)
-        {
-            std::lock_guard<std::mutex> lock(mutex_);
-            return shareKeys.find(alphaID) != shareKeys.end();
-        }
-
-        /// Get number of stored keys
-        /// @return Size of key store
-        size_t size()
-        {
-            std::lock_guard<std::mutex> lock(mutex_);
-            return shareKeys.size();
-        }
-
-        /// Get all member IDs
-        /// @return Vector of all member identifiers (size_t type)
-        std::vector<size_t> getAllAlphaIDs()
-        {
-            std::lock_guard<std::mutex> lock(mutex_);
-            std::vector<size_t> alphaIDVec;
-            for (const auto &pair : shareKeys)
-            {
-                alphaIDVec.push_back(pair.first);
-            }
-            return alphaIDVec;
-        }
-
-        /// Clear all stored keys
-        void clear()
-        {
-            std::lock_guard<std::mutex> lock(mutex_);
-            shareKeys.clear();
-        }
-
-        /// Additional helper method: Store key from vector
-        /// @param[in] alphaID Member assign number
-        /// @param[in] key      Shared key as vector
-        void storeKey(size_t alphaID, const std::vector<unsigned char> &key)
-        {
-            std::lock_guard<std::mutex> lock(mutex_);
-            shareKeys[alphaID] = key;
-        }
-
-        /// Additional helper method: Store key from string (if needed)
-        /// @param[in] alphaID Member assign number
-        /// @param[in] key      Shared key as string
-        void storeKey(size_t alphaID, const std::string &key)
-        {
-            std::lock_guard<std::mutex> lock(mutex_);
-            std::vector<unsigned char> key_vector(key.begin(), key.end());
-            shareKeys[alphaID] = key_vector;
-        }
-    };
-
     RA() = default;
 
     /// Initialize Registration Authority setup

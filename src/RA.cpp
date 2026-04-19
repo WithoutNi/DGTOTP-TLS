@@ -604,7 +604,4 @@ void RA::cleanup()
     sub_tree.clear();
     IDLG.clear();
     ID_byte_cipher.clear();
-
-    // Clear the <memberId, shared_key> map
-    AS::getInstance().clear();
 }

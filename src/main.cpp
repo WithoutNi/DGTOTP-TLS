@@ -1,20 +1,12 @@
+#include <chrono>
+#include <ctime>
 #include <iostream>
 #include <string>
 #include <vector>
-#include <ctime>
-#include <chrono>
 
-#include "Parameter.h"
-#include "ChameleonHash.h"
-#include "MerkleTrees.h"
-#include "TOTP.h"
-#include "Member.h"
-#include "RA.h"
-#include "Verifier.h"
-#include "DGTOTP_PRF.h"
+#include "DGTOTP.h"
 #include "util.h"
 
-// 辅助函数：获取当前时间戳（毫秒）
 long getCurrentTimeMillis()
 {
     auto now = std::chrono::system_clock::now();
@@ -22,113 +14,94 @@ long getCurrentTimeMillis()
     return std::chrono::duration_cast<std::chrono::milliseconds>(duration).count();
 }
 
-// 测试DGTOTP系统
 void testDGTOTP(int instanceCount)
 {
-    std::cout << "初始化DGTOTP系统..." << std::endl;
+    std::cout << "Initialize DGTOTP system..." << std::endl;
 
-    // 设置安全参数
-    int k = 128;
+    const int k = 128;
+    const std::string groupName = "DGTOTP";
+    const int groupMemberCount = 4;
+    const int verificationPeriod = 300000;
+    const int passwordGenerationPeriod = 5000;
 
     if (instanceCount <= 0)
     {
-        std::cout << "实例数量需大于0，当前值: " << instanceCount << std::endl;
+        std::cout << "Instance count must be greater than 0, current value: "
+                  << instanceCount << std::endl;
         return;
     }
 
-    // 按可变参数创建多套实例
-    std::vector<Parameter> paramsVec(instanceCount);
-    std::vector<RA> raVec(instanceCount);
-    std::vector<Member> memberVec(instanceCount);
+    std::vector<DGTOTP> dgtotpVec(instanceCount);
     std::vector<std::string> memberIdVec;
     memberIdVec.reserve(instanceCount);
     const long sharedStartTime = getSharedProtocolStartTimeMillis();
+    const long endTime = sharedStartTime + EPOCH_COUNT * verificationPeriod;
 
     for (int idx = 0; idx < instanceCount; idx++)
     {
-        paramsVec[idx].init("DGTOTP", sharedStartTime);
-        std::string memberId = "uer" + std::to_string(idx + 1);
+        std::string memberId = "user" + std::to_string(idx + 1);
         memberIdVec.push_back(memberId);
 
-        raVec[idx].RASetup(k, paramsVec[idx].getG(), paramsVec[idx].getU(),
-                           paramsVec[idx].getStartTime(), paramsVec[idx].getEndTime(),
-                           paramsVec[idx].getDeltaE(), paramsVec[idx].getDeltaS());
-        memberVec[idx].PInit(memberId, paramsVec[idx]);
+        dgtotpVec[idx].RASetup(k, groupName, groupMemberCount, sharedStartTime, endTime,
+                               verificationPeriod, passwordGenerationPeriod);
+        dgtotpVec[idx].PInit(memberId);
     }
 
     for (int idx = 0; idx < instanceCount; idx++)
     {
-        Parameter &params = paramsVec[idx];
-        RA &ra = raVec[idx];
-        Member &member = memberVec[idx];
+        DGTOTP &dgtotp = dgtotpVec[idx];
         const std::string &memberId = memberIdVec[idx];
 
-        std::cout << "===== 实例 " << (idx + 1) << " =====" << std::endl;
-        std::cout << "RA设置完成，群组公钥: " << ra.getGpk() << std::endl;
+        std::cout << "===== Instance " << (idx + 1) << " =====" << std::endl;
+        std::cout << "RA setup complete, group public key: "
+                  << dgtotp.getRA().getGpk() << std::endl;
 
         long currentTime = getCurrentTimeMillis();
-        std::cout << "当前时间戳: " << currentTime << std::endl;
+        std::cout << "Current timestamp: " << currentTime << std::endl;
 
-        // Join
         std::cout << "----Join Result:----" << std::endl;
-        std::vector<unsigned char *> Ax = ra.Join(nullptr, memberId, currentTime);
-        std::cout << "ID of the join member: " << member.getID() << std::endl;
-        std::cout << "Ks of the join member: ";
-        printBytes(Ax[0], 16);
+        dgtotp.Join(memberId, currentTime);
+        std::cout << "ID of the joined member: " << memberId << std::endl;
+        std::cout << "Join runs successfully" << std::endl;
         std::cout << std::endl;
-        std::cout << "Alpha ID of the join member: ";
-        printBytes(Ax[1], 4);
-        std::cout << std::endl
-                  << std::endl;
 
-        // PwGen
+        std::cout << "----GetSD Result:----" << std::endl;
+        std::string secretSeed = dgtotp.GetSD(memberId, currentTime);
+        std::cout << "Secret seed: " << secretSeed << std::endl;
+        std::cout << std::endl;
+
         std::cout << "----PwGen Result:----" << std::endl;
-        std::vector<std::string> password = member.PwGen(Ax, currentTime, params);
-        std::cout << "TOTP password: " << password[0] << std::endl;
-        std::cout << "Chameleon Hash collision: " << string_to_hex(password[1]) << std::endl;
-        std::cout << "Identity ciphertext: " << string_to_hex(password[2]) << std::endl;
+        DGTOTP::Password password = dgtotp.PwGen(memberId, currentTime);
+        std::cout << "TOTP password: " << password.totp_password << std::endl;
+        std::cout << "Chameleon hash collision: "
+                  << string_to_hex(password.collision_randomness) << std::endl;
+        std::cout << "Identity ciphertext: "
+                  << string_to_hex(password.identity_ciphertext) << std::endl;
         std::cout << std::endl;
 
-        // GMUpdate
-        std::cout << "----GMUpdate Result:----" << std::endl;
-        ra.GMUpdate(currentTime, params);
-        std::cout << "GMUpdate runs successfully" << std::endl;
-        std::cout << std::endl;
-
-        // Verify
         std::cout << "----Verify Result:----" << std::endl;
-        Verifier verifier;
-        int verifyResult = verifier.Verify(password, currentTime, params);
+        int verifyResult = dgtotp.Verify(password, currentTime);
         std::cout << "Verify result for the correct password and verify epoch: "
                   << (verifyResult == 1 ? "success" : "failure") << std::endl;
         std::cout << std::endl;
 
-        // Open
         std::cout << "----Open Result:----" << std::endl;
-        std::string openResult = ra.Open(password, currentTime, params);
-        std::cout << "Open ID for the correct password and verify epoch: " << openResult << std::endl;
+        std::string openResult = dgtotp.Open(password, currentTime);
+        std::cout << "Open ID for the correct password and verify epoch: "
+                  << openResult << std::endl;
         std::cout << std::endl;
 
-        // Revoke
         std::cout << "----Revoke Result:----" << std::endl;
-        int revokeResult = ra.Revoke(memberId, nullptr);
-        std::cout << "Revoke registered member " << memberId << (revokeResult == 1 ? " success" : " failure") << std::endl;
+        int revokeResult = dgtotp.Revoke(memberId);
+        std::cout << "Revoke registered member " << memberId
+                  << (revokeResult == 1 ? " success" : " failure") << std::endl;
         std::cout << std::endl;
-
-        free(Ax[0]);
-        free(Ax[1]);
-    }
-
-    for (int idx = 0; idx < instanceCount; idx++)
-    {
-        raVec[idx].cleanup();
-        paramsVec[idx].cleanup();
     }
 }
 
 int main()
 {
-    std::cout << "DGTOTP C++ 实现测试程序" << std::endl;
+    std::cout << "DGTOTP C++ implementation test program" << std::endl;
     std::cout << "========================" << std::endl;
 
     try
@@ -138,15 +111,15 @@ int main()
     }
     catch (const std::exception &e)
     {
-        std::cerr << "错误: " << e.what() << std::endl;
+        std::cerr << "Error: " << e.what() << std::endl;
         return 1;
     }
     catch (...)
     {
-        std::cerr << "发生未知错误" << std::endl;
+        std::cerr << "Unknown error occurred" << std::endl;
         return 1;
     }
 
-    std::cout << "测试完成" << std::endl;
+    std::cout << "Test completed" << std::endl;
     return 0;
 }

@@ -12,13 +12,7 @@
 #include <openssl/err.h>
 #include <openssl/rand.h>
 
-#include "Parameter.h"
-#include "ChameleonHash.h"
-#include "MerkleTrees.h"
-#include "TOTP.h"
-#include "Member.h"
-#include "RA.h"
-#include "Verifier.h"
+#include "DGTOTP.h"
 #include "DGTOTP_PRF.h"
 #include "util.h"
 
@@ -30,8 +24,6 @@
 // Global variables to store Finished message
 static unsigned char fin_msg[BUFFER_SIZE];
 static size_t fin_msg_len = 0;
-std::vector<unsigned char *> Ax;
-
 // Helper function: get current timestamp (milliseconds)
 long getCurrentTimeMillis()
 {
@@ -40,32 +32,22 @@ long getCurrentTimeMillis()
     return std::chrono::duration_cast<std::chrono::milliseconds>(duration).count();
 }
 
-// Calculate DGTOTP password
-std::vector<std::string> PwGen(const std::string &memberId, std::vector<unsigned char *> &Ax, Parameter &params, long currentTime)
-{
-    std::cout << "Calculate DGTOTP password..." << std::endl;
-    std::cout << "Current timestamp: " << currentTime << std::endl;
-
-    // Create member
-    Member member1;
-    member1.PInit(memberId, params);
-
-    // Generate DGTOTP password
-    std::cout << "Generate DGTOTP password..." << std::endl;
-    std::vector<std::string> password = member1.PwGen(Ax, currentTime, params);
-
-    return password;
-}
-
-int MACVerify(unsigned char ki[], int current_epoch_j, std::string SG, std::string Com, const unsigned char *macs, size_t mac_len)
+int MACVerify(unsigned char ki[], int current_epoch_j, std::string SG, pw_CM commitment, const unsigned char *macs, size_t mac_len)
 {
     unsigned char kij[16];
-    prf(kij, 16, ki, 16, current_epoch_j);
+    std::string kg_input = std::string("KG") + std::to_string(current_epoch_j);
+    prf1(kij, 16, ki, 16,
+         reinterpret_cast<const unsigned char *>(kg_input.data()), kg_input.size());
+
     unsigned char mac_key[16];
-    prf1(mac_key, 16, kij, 16, (unsigned char *)SG.c_str(), 2 * SG_LENGTH);
-    // Calculate MAC using shared key as parameter
+    std::string kt_input = std::string("KT") + SG;
+    prf1(mac_key, 16, kij, 16,
+         reinterpret_cast<const unsigned char *>(kt_input.data()), kt_input.size());
+
     unsigned char mac[16];
-    prf1(mac, 16, mac_key, 16, (unsigned char *)(Com + SG).c_str(), (Com + SG).size());
+    std::string tag_input = std::string("Tag") + commitment.UCM + commitment.SCM;
+    prf1(mac, 16, mac_key, 16,
+         reinterpret_cast<const unsigned char *>(tag_input.data()), tag_input.size());
     std::cout << "mac: ";
     printBytes(mac, 16);
     std::cout << std::endl;
@@ -126,9 +108,18 @@ int main()
     SSL_CTX *ctx, *ctx1;
     int server_sockfd, verifier_sockfd;
     struct sockaddr_in server_addr, verifier_addr;
-    Parameter params;
     const long sharedStartTime = getSharedProtocolStartTimeMillis();
     std::string memberId;
+    DGTOTP dgtotp;
+    DGTOTP::JoinReceipt joinReceipt;
+    unsigned char shared_key_RA[16] = {0};
+    unsigned char shared_key_AS[16] = {0};
+    unsigned char alpha_bytes[4] = {0};
+    const int securityParameter = 128;
+    const int groupMemberCount = 4;
+    const int verificationPeriod = 300000;
+    const int passwordGenerationPeriod = 5000;
+    const long endTime = sharedStartTime + EPOCH_COUNT * verificationPeriod;
 
     // Initialize OpenSSL
     SSL_library_init();
@@ -142,7 +133,9 @@ int main()
 
     int SGId = SGIdGen(k_sg, sizeof(k_sg), memberId);
     const std::string groupName = "DGTOTP" + std::to_string(SGId);
-    params.init(groupName, sharedStartTime);
+    dgtotp.ImportParameters(securityParameter, groupName, groupMemberCount, sharedStartTime, endTime,
+                            verificationPeriod, passwordGenerationPeriod);
+    dgtotp.PInit(memberId);
 
     // TLS connection with server
     // Create SSL context
@@ -196,6 +189,11 @@ int main()
             size_t server_response_len = SSL_read(server_ssl, server_response, sizeof(server_response) - 1);
             if (server_response_len > 0)
             {
+                if (server_response_len < 16 + 4 + 16)
+                {
+                    throw std::runtime_error("Server join receipt is too short");
+                }
+
                 printf("Received from server: %zu bytes\n", server_response_len);
                 server_response[server_response_len] = '\0';
                 printf("server response: \n");
@@ -206,12 +204,11 @@ int main()
                         printf("\n");
                 }
                 printf("\n");
-                unsigned char *ks_data = (unsigned char *)malloc(16);
-                memcpy(ks_data, server_response, 16);
-                Ax.push_back(ks_data);
-                unsigned char *alpha_data = (unsigned char *)malloc(4);
-                memcpy(alpha_data, server_response + 16, 4);
-                Ax.push_back(alpha_data);
+                joinReceipt.shared_key.assign(server_response, server_response + 16);
+                joinReceipt.alpha_bytes.assign(server_response + 16, server_response + 20);
+                memcpy(shared_key_RA, joinReceipt.shared_key.data(), sizeof(shared_key_RA));
+                memcpy(alpha_bytes, joinReceipt.alpha_bytes.data(), sizeof(alpha_bytes));
+                memcpy(shared_key_AS, server_response + 20, sizeof(shared_key_AS));
             }
             else if (server_response_len == 0)
             {
@@ -246,8 +243,8 @@ int main()
     std::cout << std::endl;
 
     // Calculate DGTOTP password and commitment
-    std::vector<std::string> password;
-    std::string commitment;
+    DGTOTP::Password password;
+    pw_CM commitment;
     std::string SG;
 
     // TLS connection with verifier
@@ -289,8 +286,10 @@ int main()
         try
         {
             const long protocolTime = getCurrentTimeMillis();
-            password = PwGen(memberId, Ax, params, protocolTime);
-            size_t alpha_ID = bytesToInt(Ax[1]);
+            dgtotp.ImportJoinReceipt(memberId, joinReceipt);
+            password = dgtotp.PwGen(memberId, protocolTime);
+
+            size_t alpha_ID = bytesToInt(alpha_bytes);
             printf("alpha_ID: %ld\n", alpha_ID);
             printf("fin_msg:%ld bytes\n", fin_msg_len);
             for (size_t i = 0; i < fin_msg_len; i++)
@@ -301,13 +300,14 @@ int main()
             }
             printf("\n");
             SG = intToHex(SGId, 2 * SG_LENGTH);
-            commitment = ComGen(password, fin_msg, fin_msg_len);
+            commitment = CMGen(password.toVector(), fin_msg, fin_msg_len);
 
             std::cout << "=== Calculation Complete ===" << std::endl;
-            std::cout << "TOTP Password: " << password[0] << std::endl;
-            std::cout << "Chameleon Hash: " << string_to_hex(password[1]) << std::endl;
-            std::cout << "Identity Ciphertext: " << string_to_hex(password[2]) << std::endl;
-            std::cout << "Commitment: " << commitment << std::endl;
+            std::cout << "TOTP Password: " << password.totp_password << std::endl;
+            std::cout << "Chameleon Hash Collision: " << string_to_hex(password.collision_randomness) << std::endl;
+            std::cout << "Identity Ciphertext: " << string_to_hex(password.identity_ciphertext) << std::endl;
+            std::cout << "UCM: " << commitment.UCM << std::endl;
+            std::cout << "SCM: " << commitment.SCM << std::endl;
             std::cout << "==========================" << std::endl;
         }
         catch (const std::exception &e)
@@ -316,7 +316,8 @@ int main()
             return 1;
         }
         // message=COMMITMENT+SG
-        std::string message = "MSG:" + bytesToHex(Ax[0], 16) + commitment + SG;
+        std::string Com = commitment.UCM + commitment.SCM + SG;
+        std::string message = "MSG:" + Com;
 
         // Send commitment and related information
         int bytes_sent = SSL_write(verifier_ssl, message.c_str(), message.length());
@@ -349,13 +350,16 @@ int main()
                 printf("\n");
                 // verify mac
                 long time1 = getCurrentTimeMillis();
+                const Parameter &params = dgtotp.getParameter();
                 int current_epoch_j = (int)((time1 - params.getStartTime()) / params.getDeltaE());
 
-                int result = MACVerify(Ax[0], current_epoch_j, SG, commitment, buf, bytes);
+                int result = MACVerify(shared_key_AS, current_epoch_j, SG, commitment, buf, bytes);
                 if (result == 1)
                 {
                     printf("Verfiy mac success,sent DGTOTP password\n");
-                    std::string pw = "PW:" + password[0] + password[1] + password[2];
+                    std::string pw = "PW:" + password.totp_password +
+                                     password.collision_randomness +
+                                     password.identity_ciphertext;
                     int pw_len = SSL_write(verifier_ssl, pw.c_str(), pw.length());
                 }
 
@@ -389,11 +393,6 @@ int main()
     SSL_free(verifier_ssl);
     SSL_CTX_free(ctx1);
     close(verifier_sockfd);
-
-    // Clean up resources
-    free(Ax[0]);
-    free(Ax[1]);
-    params.cleanup();
 
     return 0;
 }

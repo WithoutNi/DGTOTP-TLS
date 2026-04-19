@@ -13,9 +13,9 @@ const unsigned char k_sg[16] = {
     0x44, 0x47, 0x54, 0x4F, 0x54, 0x50, 0x2D, 0x53,
     0x47, 0x2D, 0x4B, 0x45, 0x59, 0x2D, 0x30, 0x31};
 
-std::string ComGen(const std::vector<std::string> &pw,
-                   unsigned char *finmsg,
-                   size_t finmsg_len)
+pw_CM CMGen(const std::vector<std::string> &pw,
+            unsigned char *finmsg,
+            size_t finmsg_len)
 {
     // Validate password format
     if (pw.size() < 3)
@@ -62,12 +62,10 @@ std::string ComGen(const std::vector<std::string> &pw,
     // 4. Compute final hash
     SHA256_Final(SCM, &sha256_scm);
 
-    // Convert both hashes to hexadecimal strings
-    std::string ucm_hex = bytesToHex(UCM, SHA256_DIGEST_LENGTH, true);
-    std::string scm_hex = bytesToHex(SCM, SHA256_DIGEST_LENGTH, true);
-
-    // Return concatenated result with separator
-    return ucm_hex + scm_hex; // Format: "UCM:SCM"
+    pw_CM commitment;
+    commitment.UCM = bytesToHex(UCM, SHA256_DIGEST_LENGTH, true);
+    commitment.SCM = bytesToHex(SCM, SHA256_DIGEST_LENGTH, true);
+    return commitment;
 }
 
 void prf1(unsigned char *out, size_t outlen, unsigned char *ki, size_t key_len, const unsigned char *msg, size_t msg_len)

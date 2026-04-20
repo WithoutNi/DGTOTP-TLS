@@ -13,6 +13,7 @@
 #define SG_LENGTH 1
 #define SG_NUM (1 << (8 * SG_LENGTH))
 #define EPOCH_COUNT 2
+#define TOTAL_MEMBER_NUMBER 1000
 
 /// Public subgroup key shared by client/server when computing subgroup IDs.
 /// SGId = PRF(k_sg, ID), truncated to SG_LENGTH bytes.

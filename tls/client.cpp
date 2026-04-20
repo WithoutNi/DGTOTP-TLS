@@ -32,29 +32,32 @@ long getCurrentTimeMillis()
     return std::chrono::duration_cast<std::chrono::milliseconds>(duration).count();
 }
 
-int MACVerify(unsigned char ki[], int current_epoch_j, std::string SG, pw_CM commitment, const unsigned char *macs, size_t mac_len)
+int TagCheck(unsigned char ki[], int current_epoch_j, std::string SG, pw_CM commitment, const unsigned char *tags, size_t tag_len)
 {
     unsigned char kij[16];
     std::string kg_input = std::string("KG") + std::to_string(current_epoch_j);
+    // kij=F1(ki,"KG"||j)
     prf1(kij, 16, ki, 16,
          reinterpret_cast<const unsigned char *>(kg_input.data()), kg_input.size());
 
-    unsigned char mac_key[16];
+    unsigned char tag_key[16];
     std::string kt_input = std::string("KT") + SG;
-    prf1(mac_key, 16, kij, 16,
+    // k_tag=F1(kij,"KT"||SG)
+    prf1(tag_key, 16, kij, 16,
          reinterpret_cast<const unsigned char *>(kt_input.data()), kt_input.size());
 
-    unsigned char mac[16];
+    unsigned char tag[16];
     std::string tag_input = std::string("Tag") + commitment.UCM + commitment.SCM;
-    prf1(mac, 16, mac_key, 16,
+    // tag=F1(k_tag,"Tag"||CM)
+    prf1(tag, 16, tag_key, 16,
          reinterpret_cast<const unsigned char *>(tag_input.data()), tag_input.size());
-    std::cout << "mac: ";
-    printBytes(mac, 16);
+    std::cout << "tag: ";
+    printBytes(tag, 16);
     std::cout << std::endl;
-    // compare method should compare every 16 bytes in macs
-    for (int i = 0; i < mac_len; i += 16)
+    // compare method should compare every 16 bytes in tags
+    for (int i = 0; i < tag_len; i += 16)
     {
-        if (memcmp(macs + i, mac, 16) == 0)
+        if (memcmp(tags + i, tag, 16) == 0)
         {
             return 1;
         }
@@ -112,9 +115,6 @@ int main()
     std::string memberId;
     DGTOTP dgtotp;
     DGTOTP::JoinReceipt joinReceipt;
-    unsigned char shared_key_RA[16] = {0};
-    unsigned char shared_key_AS[16] = {0};
-    unsigned char alpha_bytes[4] = {0};
     const int securityParameter = 128;
     const int groupMemberCount = 4;
     const int verificationPeriod = 300000;
@@ -136,6 +136,10 @@ int main()
     dgtotp.ImportParameters(securityParameter, groupName, groupMemberCount, sharedStartTime, endTime,
                             verificationPeriod, passwordGenerationPeriod);
     dgtotp.PInit(memberId);
+
+    unsigned char shared_key_RA[16] = {0};
+    unsigned char shared_key_AS[16] = {0};
+    unsigned char alpha_bytes[4] = {0};
 
     // TLS connection with server
     // Create SSL context
@@ -348,15 +352,15 @@ int main()
                         printf("\n");
                 }
                 printf("\n");
-                // verify mac
+                // verify tag
                 long time1 = getCurrentTimeMillis();
                 const Parameter &params = dgtotp.getParameter();
                 int current_epoch_j = (int)((time1 - params.getStartTime()) / params.getDeltaE());
 
-                int result = MACVerify(shared_key_AS, current_epoch_j, SG, commitment, buf, bytes);
+                int result = TagCheck(shared_key_AS, current_epoch_j, SG, commitment, buf, bytes);
                 if (result == 1)
                 {
-                    printf("Verfiy mac success,sent DGTOTP password\n");
+                    printf("Verfiy tag success,sent DGTOTP password\n");
                     std::string pw = "PW:" + password.totp_password +
                                      password.collision_randomness +
                                      password.identity_ciphertext;

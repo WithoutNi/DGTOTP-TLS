@@ -553,6 +553,11 @@ std::vector<unsigned char *> RA::Join(EVP_CIPHER_CTX *ks, const std::string &ID,
     return Ax;
 }
 
+bool RA::IsJoinedMember(const std::string &memberId) const
+{
+    return std::find(IDLG.begin(), IDLG.end(), memberId) != IDLG.end();
+}
+
 int RA::Revoke(const std::string &ID, EVP_CIPHER_CTX *RA_key)
 {
     per_id_index = 0;

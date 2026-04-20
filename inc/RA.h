@@ -53,6 +53,11 @@ public:
     /// @return Parameter array for member setup
     std::vector<unsigned char *> Join(EVP_CIPHER_CTX *ks, const std::string &ID, long time);
 
+    /// Check whether a member identifier has already been registered
+    /// @param[in] memberId Member identifier
+    /// @return true if the identifier already exists in IDLG, false otherwise
+    bool IsJoinedMember(const std::string &memberId) const;
+
     /// Revoke member from group
     /// @param[in] ID      Member identifier
     /// @param[in] RA_key  RA key context
@@ -88,6 +93,7 @@ public:
                                   size_t data_len, unsigned char *assocData, unsigned char *nonce);
 
     int getU() const { return U; }
+    int getJoinedMemberCount() const { return alpha; }
     const std::vector<std::string> &getIDLG() const { return IDLG; }
     const std::string &getGpk() const { return gpk; }
 

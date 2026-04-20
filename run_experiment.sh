@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # 脚本名称：run_experiment.sh
-# 用途：在Ubuntu上重复运行 server -> verifier -> client 并统计mac_collection.size() >= 2的比例和verifyResult=1的比例
+# 用途：在Ubuntu上重复运行 server -> verifier -> client 并统计tag_collection.size() >= 2的比例和verifyResult=1的比例
 # 使用方法：在项目根目录下执行 ./run_experiment.sh [运行次数]
 
 # 设置运行次数，默认为10次
@@ -24,7 +24,7 @@ fi
 
 # 统计变量
 total_runs=0
-mac_ge_2_count=0
+tag_ge_2_count=0
 verify_success_count=0
 
 # 临时文件用于存储输出
@@ -63,21 +63,21 @@ for ((i=1; i<=RUN_COUNT; i++)); do
     echo "等待进程完成..." >> "$REPORT_FILE"
     sleep 3  # 根据你的程序实际运行时间调整
     
-    # 从server输出中提取mac_collection.size()信息
-    if grep -q "match mac number:" "$temp_output"; then
+    # 从server输出中提取tag_collection.size()信息
+    if grep -q "match tag number:" "$temp_output"; then
         total_runs=$((total_runs + 1))
         
-        # 提取匹配的mac数量
-        mac_count=$(grep "match mac number:" "$temp_output" | awk '{print $4}')
+        # 提取匹配的tag数量
+        tag_count=$(grep "match tag number:" "$temp_output" | awk '{print $4}')
         
-        echo "第 $i 次运行 - match mac number: $mac_count" >> "$REPORT_FILE"
+        echo "第 $i 次运行 - match tag number: $tag_count" >> "$REPORT_FILE"
         
         # 检查是否大于等于2
-        if [[ $mac_count -ge 2 ]]; then
-            mac_ge_2_count=$((mac_ge_2_count + 1))
-            echo "  ✓ mac_collection.size() >= 2" >> "$REPORT_FILE"
+        if [[ $tag_count -ge 2 ]]; then
+            tag_ge_2_count=$((tag_ge_2_count + 1))
+            echo "  ✓ tag_collection.size() >= 2" >> "$REPORT_FILE"
         else
-            echo "  ✗ mac_collection.size() < 2" >> "$REPORT_FILE"
+            echo "  ✗ tag_collection.size() < 2" >> "$REPORT_FILE"
         fi
         
         # 提取verifyResult信息（server.cpp第441行）
@@ -90,7 +90,7 @@ for ((i=1; i<=RUN_COUNT; i++)); do
             echo "  ? verifyResult信息未找到" >> "$REPORT_FILE"
         fi
     else
-        echo "第 $i 次运行 - 未找到mac_collection信息" >> "$REPORT_FILE"
+        echo "第 $i 次运行 - 未找到tag_collection信息" >> "$REPORT_FILE"
     fi
     
     # 清理进程（确保没有残留）
@@ -111,11 +111,11 @@ done
 rm -f "$temp_output"
 
 # 计算比例
-mac_ge_2_percentage=0
+tag_ge_2_percentage=0
 verify_success_percentage=0
 
 if [[ $total_runs -gt 0 ]]; then
-    mac_ge_2_percentage=$(echo "scale=2; $mac_ge_2_count * 100 / $total_runs" | bc)
+    tag_ge_2_percentage=$(echo "scale=2; $tag_ge_2_count * 100 / $total_runs" | bc)
     verify_success_percentage=$(echo "scale=2; $verify_success_count * 100 / $total_runs" | bc)
 fi
 
@@ -125,10 +125,10 @@ fi
     echo "实验完成!"
     echo "总有效运行次数: $total_runs"
     echo ""
-    echo "统计结果1: mac_collection.size() >= 2"
+    echo "统计结果1: tag_collection.size() >= 2"
     echo "----------------------------------------"
-    echo "出现次数: $mac_ge_2_count"
-    echo "比例: $mac_ge_2_percentage%"
+    echo "出现次数: $tag_ge_2_count"
+    echo "比例: $tag_ge_2_percentage%"
     echo ""
     echo "统计结果2: verifyResult == 1 (验证成功)"
     echo "----------------------------------------"
@@ -136,7 +136,7 @@ fi
     echo "比例: $verify_success_percentage%"
     echo ""
     echo "总结:"
-    echo "mac_collection.size() >= 2 且 verifyResult == 1 的比例: "
+    echo "tag_collection.size() >= 2 且 verifyResult == 1 的比例: "
     echo "=========================================="
 } >> "$REPORT_FILE"
 
@@ -146,5 +146,5 @@ echo "实验完成! 详细结果已保存到: $REPORT_FILE"
 echo "总运行次数: $RUN_COUNT"
 echo "有效运行次数: $total_runs"
 echo ""
-echo "mac_collection.size() >= 2 的比例: $mac_ge_2_percentage% ($mac_ge_2_count/$total_runs)"
+echo "tag_collection.size() >= 2 的比例: $tag_ge_2_percentage% ($tag_ge_2_count/$total_runs)"
 echo "verifyResult == 1 的比例: $verify_success_percentage% ($verify_success_count/$total_runs)"

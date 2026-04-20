@@ -14,6 +14,7 @@
 
 #include "DGTOTP.h"
 #include "DGTOTP_PRF.h"
+#include "AS.h"
 #include "RA.h"
 #include "util.h"
 
@@ -68,13 +69,14 @@ void configure_context(SSL_CTX *ctx)
 }
 
 // Function implementation
-std::vector<std::vector<unsigned char>> MacGen(
+std::vector<std::vector<unsigned char>> TagGen(
     const Parameter &params,
-    const Skeys &shared_keys,
+    AS &as,
     const unsigned char *received_msg,
     size_t received_msg_len)
 {
     const size_t commitment_len = 2 * SHA256_DIGEST_LENGTH * 2;
+    const size_t single_commitment_len = 2 * SHA256_DIGEST_LENGTH;
 
     // Add boundary check
     if (received_msg_len < commitment_len + 2 * SG_LENGTH)
@@ -82,22 +84,32 @@ std::vector<std::vector<unsigned char>> MacGen(
         throw std::runtime_error("Received message too short");
     }
 
+    std::string cm(reinterpret_cast<const char *>(received_msg), commitment_len);
+    std::string ucm = cm.substr(0, single_commitment_len);
+    std::string scm = cm.substr(single_commitment_len, single_commitment_len);
+
+    unsigned char SG_hex[2 * SG_LENGTH];
+    memcpy(SG_hex, received_msg + commitment_len, 2 * SG_LENGTH);
+    std::string SG_hex_str(reinterpret_cast<char *>(SG_hex), 2 * SG_LENGTH);
+
+    Com com;
+    com.SGId = static_cast<int>(strtol(SG_hex_str.c_str(), nullptr, 16));
+    com.CM.UCM = ucm;
+    com.CM.SCM = scm;
+
+    if (!as.CheckAndAddCM(com))
+    {
+        std::cout << "Received commitment was already in AS, abort!" << std::endl;
+        return {};
+    }
+
+    Skeys shared_keys = as.QuerySkeysBySGId(com.SGId);
     if (shared_keys.empty())
     {
         throw std::runtime_error("Shared key collection is empty");
     }
 
-    unsigned char SG_hex[2 * SG_LENGTH];
-    memcpy(SG_hex, received_msg + commitment_len, 2 * SG_LENGTH);
-    std::vector<unsigned char> SG_vec = HexToBytes(SG_hex, 2 * SG_LENGTH);
-    printf("sub group identity=");
-    for (size_t i = 0; i < SG_LENGTH; i++)
-    {
-        printf("%02X ", SG_vec[i]);
-    }
-    printf("\n");
-
-    std::vector<std::vector<unsigned char>> mac_collection;
+    std::vector<std::vector<unsigned char>> tag_collection;
     long time1 = getCurrentTimeMillis();
     int current_epoch_j = (int)((time1 - params.getStartTime()) / params.getDeltaE());
     std::string kg_input = std::string("KG") + std::to_string(current_epoch_j);
@@ -113,30 +125,33 @@ std::vector<std::vector<unsigned char>> MacGen(
         }
 
         unsigned char kij[16];
-        unsigned char k_mac[16];
-        unsigned char mac[16];
+        unsigned char k_tag[16];
+        unsigned char tag[16];
 
+        // kij=F1(ki,"KG"||j)
         prf1(kij, 16, const_cast<unsigned char *>(shared_key.key.data()), shared_key.key.size(),
              reinterpret_cast<const unsigned char *>(kg_input.data()), kg_input.size());
-        prf1(k_mac, 16, kij, 16,
+        // k_tag=F1(kij,"KT"||SG)
+        prf1(k_tag, 16, kij, 16,
              reinterpret_cast<const unsigned char *>(kt_input.data()), kt_input.size());
-        prf1(mac, 16, k_mac, 16,
+        // tag=F1(k_tag,"Tag"||CM)
+        prf1(tag, 16, k_tag, 16,
              reinterpret_cast<const unsigned char *>(tag_input.data()), tag_input.size());
 
-        std::cout << "mac: ";
-        printBytes(mac, 16);
+        std::cout << "tag: ";
+        printBytes(tag, 16);
         std::cout << std::endl;
 
-        mac_collection.emplace_back(mac, mac + 16);
+        tag_collection.emplace_back(tag, tag + 16);
     }
 
-    if (mac_collection.empty())
+    if (tag_collection.empty())
     {
-        throw std::runtime_error("No valid shared keys found for MAC generation");
+        throw std::runtime_error("No valid shared keys found for tag generation");
     }
 
-    printf("match mac number: %ld\n", mac_collection.size());
-    return mac_collection;
+    printf("match tag number: %ld\n", tag_collection.size());
+    return tag_collection;
 }
 
 int main()
@@ -234,7 +249,10 @@ int main()
                 Skey SkeyID;
                 SkeyID.SGId = selectedSGId;
                 SkeyID.key.resize(16);
-                std::string msg = "SK" + std::to_string(selectedSGId) + std::to_string(alphaID);
+                unsigned char rv[16];
+                RAND_bytes(rv, 16);
+                std::string msg = "SK" + bytesToHex(rv, 16);
+                // SkeyID.key = F1(sk_ske, "SK"||rv);
                 prf1(SkeyID.key.data(), SkeyID.key.size(),
                      sk_ske[selectedSGId], 16,
                      reinterpret_cast<const unsigned char *>(msg.c_str()), msg.length());
@@ -301,6 +319,37 @@ int main()
     SSL *verifier_ssl = SSL_new(ctx1);
     SSL_set_fd(verifier_ssl, client_fd1);
 
+    // Simulate group member joining
+    for (int i = 0; i < TOTAL_MEMBER_NUMBER; i++)
+    {
+        unsigned char new_ID[ID_LENGTH];
+        RAND_bytes(new_ID, ID_LENGTH);
+        std::string new_memberId = bytesToHex(new_ID, ID_LENGTH);
+        int new_SGId = SGIdGen(k_sg, sizeof(k_sg), new_memberId);
+        if (!(dgtotpVec[new_SGId].getRA().IsJoinedMember(new_memberId)))
+        {
+            if (dgtotpVec[new_SGId].getRA().getJoinedMemberCount() >=
+                dgtotpVec[new_SGId].getRA().getU())
+            {
+                continue;
+            }
+            const long T = getCurrentTimeMillis();
+            dgtotpVec[new_SGId].PInit(new_memberId);
+            dgtotpVec[new_SGId].Join(new_memberId, T);
+            Skey new_SkeyID;
+            new_SkeyID.SGId = new_SGId;
+            new_SkeyID.key.resize(16);
+            unsigned char new_rv[16];
+            RAND_bytes(new_rv, 16);
+            std::string new_msg = "SK" + bytesToHex(new_rv, 16);
+            // new_SkeyID.key = F1(sk_ske, "SK"||rv);
+            prf1(new_SkeyID.key.data(), new_SkeyID.key.size(),
+                 sk_ske[new_SGId], 16,
+                 reinterpret_cast<const unsigned char *>(new_msg.c_str()), new_msg.length());
+            as.AddSkey(new_SkeyID);
+        }
+    }
+
     // Perform TLS handshake
     if (SSL_accept(verifier_ssl))
     {
@@ -338,29 +387,33 @@ int main()
                     printf("\n");
 
                     const Parameter &params = dgtotpVec[selectedSGId].getParameter();
-                    Skeys subgroupSharedKeys = as.QuerySkeysBySGId(selectedSGId);
-                    std::vector<std::vector<unsigned char>> macs = MacGen(params, subgroupSharedKeys, received_msg, received_msg_len);
+                    std::vector<std::vector<unsigned char>> tags = TagGen(params, as, received_msg, received_msg_len);
                     // Calculate total bytes
                     size_t total_size = 0;
-                    for (const auto &mac : macs)
+                    for (const auto &tag : tags)
                     {
-                        total_size += mac.size();
+                        total_size += tag.size();
+                    }
+
+                    if (tags.empty())
+                    {
+                        std::cout << "No tags generated for the received commitment" << std::endl;
+                        continue;
                     }
 
                     // Create continuous buffer
                     std::vector<unsigned char> buffer;
                     buffer.reserve(total_size);
 
-                    // Concatenate all MACs
-                    for (const auto &mac : macs)
+                    // Concatenate all tags
+                    for (const auto &tag : tags)
                     {
-                        buffer.insert(buffer.end(), mac.begin(), mac.end());
+                        buffer.insert(buffer.end(), tag.begin(), tag.end());
                     }
 
-                    // Send data
+                    // Send tags
                     SSL_write(verifier_ssl, buffer.data(), buffer.size());
-                    // Send MAC
-                    printf("Sent compute mac to verifier\n");
+                    printf("Sent compute tags to verifier\n");
                     printf("\n");
                 }
                 else if (strstr(buf, "PW:"))

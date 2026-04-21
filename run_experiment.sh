@@ -4,6 +4,10 @@
 # 用途：在Ubuntu上重复运行 server -> verifier -> client 并统计tag_collection.size() >= 2的比例和verifyResult=1的比例
 # 使用方法：在项目根目录下执行 ./run_experiment.sh [运行次数]
 
+# 添加以下两行来解决终端无法打开的问题
+unset GTK_PATH
+export GTK_PATH=""
+
 # 设置运行次数，默认为10次
 RUN_COUNT=${1:-10}
 
@@ -29,6 +33,58 @@ verify_success_count=0
 
 # 临时文件用于存储输出
 temp_output=$(mktemp)
+log_dir=$(mktemp -d)
+
+print_server_output() {
+    local server_log="$1"
+    local reason="$2"
+
+    {
+        echo ""
+        echo "  ===== server完整输出开始 ($reason) ====="
+        if [[ -s "$server_log" ]]; then
+            cat "$server_log"
+        else
+            echo "  server输出为空"
+        fi
+        echo "  ===== server完整输出结束 ====="
+        echo ""
+    } >> "$REPORT_FILE"
+}
+
+print_verifier_output() {
+    local verifier_log="$1"
+    local reason="$2"
+
+    {
+        echo ""
+        echo "  ===== verifier完整输出开始 ($reason) ====="
+        if [[ -s "$verifier_log" ]]; then
+            cat "$verifier_log"
+        else
+            echo "  verifier输出为空"
+        fi
+        echo "  ===== verifier完整输出结束 ====="
+        echo ""
+    } >> "$REPORT_FILE"
+}
+
+print_client_output() {
+    local client_log="$1"
+    local reason="$2"
+
+    {
+        echo ""
+        echo "  ===== client完整输出开始 ($reason) ====="
+        if [[ -s "$client_log" ]]; then
+            cat "$client_log"
+        else
+            echo "  client输出为空"
+        fi
+        echo "  ===== client完整输出结束 ====="
+        echo ""
+    } >> "$REPORT_FILE"
+}
 
 {
     echo "开始实验，运行次数: $RUN_COUNT"
@@ -40,23 +96,29 @@ for ((i=1; i<=RUN_COUNT; i++)); do
     
     # 清空临时文件
     > "$temp_output"
+    server_log="$log_dir/server_${i}.log"
+    verifier_log="$log_dir/verifier_${i}.log"
+    client_log="$log_dir/client_${i}.log"
+    > "$server_log"
+    > "$verifier_log"
+    > "$client_log"
     
     # 启动server在新的terminal中，并捕获其输出
-    gnome-terminal --title="Server $i" -- bash -c "./server 2>&1 | tee -a '$temp_output'" >/dev/null 2>&1 &
+    gnome-terminal --title="Server $i" -- bash -c "./server 2>&1 | tee -a '$server_log' '$temp_output'" >/dev/null 2>&1 &
     SERVER_PID=$!
     
     # 等待server启动
     sleep 2
     
     # 启动verifier在新的terminal中
-    gnome-terminal --title="Verifier $i" -- bash -c "./verifier 2>&1" >/dev/null 2>&1 &
+    gnome-terminal --title="Verifier $i" -- bash -c "./verifier 2>&1 | tee -a '$verifier_log'" >/dev/null 2>&1 &
     VERIFIER_PID=$!
     
     # 等待verifier启动
     sleep 2
     
     # 启动client在新的terminal中
-    gnome-terminal --title="Client $i" -- bash -c "./client 2>&1" >/dev/null 2>&1 &
+    gnome-terminal --title="Client $i" -- bash -c "./client 2>&1 | tee -a '$client_log'" >/dev/null 2>&1 &
     CLIENT_PID=$!
     
     # 等待所有进程完成
@@ -86,11 +148,20 @@ for ((i=1; i<=RUN_COUNT; i++)); do
             echo "  ✓ verifyResult = 1 (验证成功)" >> "$REPORT_FILE"
         elif grep -q "Verify result for the correct password and verify epoch: failure" "$temp_output"; then
             echo "  ✗ verifyResult = 0 (验证失败)" >> "$REPORT_FILE"
+            print_server_output "$server_log" "verifyResult=failure"
+            print_verifier_output "$verifier_log" "verifyResult=failure"
+            print_client_output "$client_log" "verifyResult=failure"
         else
             echo "  ? verifyResult信息未找到" >> "$REPORT_FILE"
+            print_server_output "$server_log" "verifyResult信息未找到"
+            print_verifier_output "$verifier_log" "verifyResult信息未找到"
+            print_client_output "$client_log" "verifyResult信息未找到"
         fi
     else
         echo "第 $i 次运行 - 未找到tag_collection信息" >> "$REPORT_FILE"
+        print_server_output "$server_log" "未找到tag_collection信息"
+        print_verifier_output "$verifier_log" "未找到tag_collection信息"
+        print_client_output "$client_log" "未找到tag_collection信息"
     fi
     
     # 清理进程（确保没有残留）
@@ -109,6 +180,7 @@ done
 
 # 删除临时文件
 rm -f "$temp_output"
+rm -rf "$log_dir"
 
 # 计算比例
 tag_ge_2_percentage=0

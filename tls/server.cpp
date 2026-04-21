@@ -79,7 +79,7 @@ std::vector<std::vector<unsigned char>> TagGen(
     const size_t single_commitment_len = 2 * SHA256_DIGEST_LENGTH;
 
     // Add boundary check
-    if (received_msg_len < commitment_len + 2 * SG_LENGTH)
+    if (received_msg_len < commitment_len + 2 * SG_LENGTH_BYTES)
     {
         throw std::runtime_error("Received message too short");
     }
@@ -88,9 +88,9 @@ std::vector<std::vector<unsigned char>> TagGen(
     std::string ucm = cm.substr(0, single_commitment_len);
     std::string scm = cm.substr(single_commitment_len, single_commitment_len);
 
-    unsigned char SG_hex[2 * SG_LENGTH];
-    memcpy(SG_hex, received_msg + commitment_len, 2 * SG_LENGTH);
-    std::string SG_hex_str(reinterpret_cast<char *>(SG_hex), 2 * SG_LENGTH);
+    unsigned char SG_hex[2 * SG_LENGTH_BYTES];
+    memcpy(SG_hex, received_msg + commitment_len, 2 * SG_LENGTH_BYTES);
+    std::string SG_hex_str(reinterpret_cast<char *>(SG_hex), 2 * SG_LENGTH_BYTES);
 
     Com com;
     com.SGId = static_cast<int>(strtol(SG_hex_str.c_str(), nullptr, 16));
@@ -112,8 +112,9 @@ std::vector<std::vector<unsigned char>> TagGen(
     std::vector<std::vector<unsigned char>> tag_collection;
     long time1 = getCurrentTimeMillis();
     int current_epoch_j = (int)((time1 - params.getStartTime()) / params.getDeltaE());
+    std::cout << "In Server, current_epoch_j=" << std::dec << current_epoch_j << std::endl;
     std::string kg_input = std::string("KG") + std::to_string(current_epoch_j);
-    std::string kt_input = std::string("KT") + std::string(reinterpret_cast<const char *>(SG_hex), 2 * SG_LENGTH);
+    std::string kt_input = std::string("KT") + std::string(reinterpret_cast<const char *>(SG_hex), 2 * SG_LENGTH_BYTES);
     std::string tag_input = std::string("Tag") +
                             std::string(reinterpret_cast<const char *>(received_msg), commitment_len);
 
@@ -124,25 +125,25 @@ std::vector<std::vector<unsigned char>> TagGen(
             continue;
         }
 
-        unsigned char kij[16];
-        unsigned char k_tag[16];
-        unsigned char tag[16];
+        unsigned char kij[KEY_LENGTH_BYTES];
+        unsigned char k_tag[KEY_LENGTH_BYTES];
+        unsigned char tag[KEY_LENGTH_BYTES];
 
         // kij=F1(ki,"KG"||j)
-        prf1(kij, 16, const_cast<unsigned char *>(shared_key.key.data()), shared_key.key.size(),
+        prf1(kij, KEY_LENGTH_BYTES, const_cast<unsigned char *>(shared_key.key.data()), shared_key.key.size(),
              reinterpret_cast<const unsigned char *>(kg_input.data()), kg_input.size());
         // k_tag=F1(kij,"KT"||SG)
-        prf1(k_tag, 16, kij, 16,
+        prf1(k_tag, KEY_LENGTH_BYTES, kij, KEY_LENGTH_BYTES,
              reinterpret_cast<const unsigned char *>(kt_input.data()), kt_input.size());
         // tag=F1(k_tag,"Tag"||CM)
-        prf1(tag, 16, k_tag, 16,
+        prf1(tag, KEY_LENGTH_BYTES, k_tag, KEY_LENGTH_BYTES,
              reinterpret_cast<const unsigned char *>(tag_input.data()), tag_input.size());
 
         std::cout << "tag: ";
-        printBytes(tag, 16);
+        printBytes(tag, KEY_LENGTH_BYTES);
         std::cout << std::endl;
 
-        tag_collection.emplace_back(tag, tag + 16);
+        tag_collection.emplace_back(tag, tag + KEY_LENGTH_BYTES);
     }
 
     if (tag_collection.empty())
@@ -168,7 +169,7 @@ int main()
 
     const long sharedStartTime = getSharedProtocolStartTimeMillis();
     const size_t subgroupCount = SG_NUM;
-    const int securityParameter = 128;
+    const int securityParameter = SECURITY_PARAMETER_BITS;
     const int groupMemberCount = 4;
     const int verificationPeriod = 300000;
     const int passwordGenerationPeriod = 5000;
@@ -248,13 +249,13 @@ int main()
                 size_t alphaID = bytesToInt(joinReceipt.alpha_bytes.data());
                 Skey SkeyID;
                 SkeyID.SGId = selectedSGId;
-                SkeyID.key.resize(16);
-                unsigned char rv[16];
-                RAND_bytes(rv, 16);
-                std::string msg = "SK" + bytesToHex(rv, 16);
+                SkeyID.key.resize(KEY_LENGTH_BYTES);
+                unsigned char rv[KEY_LENGTH_BYTES];
+                RAND_bytes(rv, KEY_LENGTH_BYTES);
+                std::string msg = "SK" + bytesToHex(rv, KEY_LENGTH_BYTES);
                 // SkeyID.key = F1(sk_ske, "SK"||rv);
                 prf1(SkeyID.key.data(), SkeyID.key.size(),
-                     sk_ske[selectedSGId], 16,
+                     sk_ske[selectedSGId], KEY_LENGTH_BYTES,
                      reinterpret_cast<const unsigned char *>(msg.c_str()), msg.length());
                 as.AddSkey(SkeyID);
 
@@ -268,19 +269,19 @@ int main()
                 printBytes(SkeyID.key.data(), SkeyID.key.size());
                 std::cout << std::endl;
 
-                size_t total_length = 16 + 4 + 16;
+                size_t total_length = KEY_LENGTH_BYTES + 4 + KEY_LENGTH_BYTES;
 
                 // Create buffer and copy data
                 std::vector<unsigned char> buffer;
                 buffer.reserve(total_length);
 
-                // Copy first pointer data (16 bytes)
+                // Copy first pointer data (KEY_LENGTH_BYTES bytes)
                 buffer.insert(buffer.end(), joinReceipt.shared_key.begin(), joinReceipt.shared_key.end());
 
                 // Copy second pointer data (4 bytes)
                 buffer.insert(buffer.end(), joinReceipt.alpha_bytes.begin(), joinReceipt.alpha_bytes.end());
 
-                // Copy AS shared key (16 bytes)
+                // Copy AS shared key (KEY_LENGTH_BYTES bytes)
                 buffer.insert(buffer.end(), SkeyID.key.begin(), SkeyID.key.end());
 
                 // Send actual data
@@ -322,9 +323,9 @@ int main()
     // Simulate group member joining
     for (int i = 0; i < TOTAL_MEMBER_NUMBER; i++)
     {
-        unsigned char new_ID[ID_LENGTH];
-        RAND_bytes(new_ID, ID_LENGTH);
-        std::string new_memberId = bytesToHex(new_ID, ID_LENGTH);
+        unsigned char new_ID[ID_LENGTH_BYTES];
+        RAND_bytes(new_ID, ID_LENGTH_BYTES);
+        std::string new_memberId = bytesToHex(new_ID, ID_LENGTH_BYTES);
         int new_SGId = SGIdGen(k_sg, sizeof(k_sg), new_memberId);
         if (!(dgtotpVec[new_SGId].getRA().IsJoinedMember(new_memberId)))
         {
@@ -338,13 +339,13 @@ int main()
             dgtotpVec[new_SGId].Join(new_memberId, T);
             Skey new_SkeyID;
             new_SkeyID.SGId = new_SGId;
-            new_SkeyID.key.resize(16);
-            unsigned char new_rv[16];
-            RAND_bytes(new_rv, 16);
-            std::string new_msg = "SK" + bytesToHex(new_rv, 16);
+            new_SkeyID.key.resize(KEY_LENGTH_BYTES);
+            unsigned char new_rv[KEY_LENGTH_BYTES];
+            RAND_bytes(new_rv, KEY_LENGTH_BYTES);
+            std::string new_msg = "SK" + bytesToHex(new_rv, KEY_LENGTH_BYTES);
             // new_SkeyID.key = F1(sk_ske, "SK"||rv);
             prf1(new_SkeyID.key.data(), new_SkeyID.key.size(),
-                 sk_ske[new_SGId], 16,
+                 sk_ske[new_SGId], KEY_LENGTH_BYTES,
                  reinterpret_cast<const unsigned char *>(new_msg.c_str()), new_msg.length());
             as.AddSkey(new_SkeyID);
         }

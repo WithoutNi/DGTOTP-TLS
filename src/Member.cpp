@@ -109,6 +109,7 @@ std::vector<std::string> Member::PwGen(std::vector<unsigned char *> &Ax, long ti
     // DGTOTP passwords
     std::vector<std::string> DGTOTP_pw(3);
     int instance_index = (int)((time - START_TIME) / Δe);
+    std::cout << "In Member, current_verify_epoch=" << std::dec << instance_index << std::endl;
 
     if (!SECRET_SEED.empty())
     {
@@ -124,6 +125,7 @@ std::vector<std::string> Member::PwGen(std::vector<unsigned char *> &Ax, long ti
 
     // Password index z
     int pw_sequence = (time - instance_index * Δe - START_TIME) / Δs;
+    std::cout << "In Member, pw_sequence=" << std::dec << pw_sequence << std::endl;
 
     // TOTP password
     TOTP totp;

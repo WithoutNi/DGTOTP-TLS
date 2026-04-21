@@ -34,30 +34,30 @@ long getCurrentTimeMillis()
 
 int TagCheck(unsigned char ki[], int current_epoch_j, std::string SG, pw_CM commitment, const unsigned char *tags, size_t tag_len)
 {
-    unsigned char kij[16];
+    unsigned char kij[KEY_LENGTH_BYTES];
     std::string kg_input = std::string("KG") + std::to_string(current_epoch_j);
     // kij=F1(ki,"KG"||j)
-    prf1(kij, 16, ki, 16,
+    prf1(kij, KEY_LENGTH_BYTES, ki, KEY_LENGTH_BYTES,
          reinterpret_cast<const unsigned char *>(kg_input.data()), kg_input.size());
 
-    unsigned char tag_key[16];
+    unsigned char tag_key[KEY_LENGTH_BYTES];
     std::string kt_input = std::string("KT") + SG;
     // k_tag=F1(kij,"KT"||SG)
-    prf1(tag_key, 16, kij, 16,
+    prf1(tag_key, KEY_LENGTH_BYTES, kij, KEY_LENGTH_BYTES,
          reinterpret_cast<const unsigned char *>(kt_input.data()), kt_input.size());
 
-    unsigned char tag[16];
+    unsigned char tag[KEY_LENGTH_BYTES];
     std::string tag_input = std::string("Tag") + commitment.UCM + commitment.SCM;
     // tag=F1(k_tag,"Tag"||CM)
-    prf1(tag, 16, tag_key, 16,
+    prf1(tag, KEY_LENGTH_BYTES, tag_key, KEY_LENGTH_BYTES,
          reinterpret_cast<const unsigned char *>(tag_input.data()), tag_input.size());
     std::cout << "tag: ";
-    printBytes(tag, 16);
+    printBytes(tag, KEY_LENGTH_BYTES);
     std::cout << std::endl;
-    // compare method should compare every 16 bytes in tags
-    for (int i = 0; i < tag_len; i += 16)
+    // compare method should compare every KEY_LENGTH_BYTES bytes in tags
+    for (int i = 0; i < tag_len; i += KEY_LENGTH_BYTES)
     {
-        if (memcmp(tags + i, tag, 16) == 0)
+        if (memcmp(tags + i, tag, KEY_LENGTH_BYTES) == 0)
         {
             return 1;
         }
@@ -115,7 +115,7 @@ int main()
     std::string memberId;
     DGTOTP dgtotp;
     DGTOTP::JoinReceipt joinReceipt;
-    const int securityParameter = 128;
+    const int securityParameter = SECURITY_PARAMETER_BITS;
     const int groupMemberCount = 4;
     const int verificationPeriod = 300000;
     const int passwordGenerationPeriod = 5000;
@@ -127,9 +127,9 @@ int main()
     SSL_load_error_strings();
 
     // Prepare memberId first, then derive the subgroup-specific group name.
-    unsigned char ID[ID_LENGTH];
-    RAND_bytes(ID, ID_LENGTH);
-    memberId = bytesToHex(ID, ID_LENGTH);
+    unsigned char ID[ID_LENGTH_BYTES];
+    RAND_bytes(ID, ID_LENGTH_BYTES);
+    memberId = bytesToHex(ID, ID_LENGTH_BYTES);
 
     int SGId = SGIdGen(k_sg, sizeof(k_sg), memberId);
     const std::string groupName = "DGTOTP" + std::to_string(SGId);
@@ -137,8 +137,8 @@ int main()
                             verificationPeriod, passwordGenerationPeriod);
     dgtotp.PInit(memberId);
 
-    unsigned char shared_key_RA[16] = {0};
-    unsigned char shared_key_AS[16] = {0};
+    unsigned char shared_key_RA[KEY_LENGTH_BYTES] = {0};
+    unsigned char shared_key_AS[KEY_LENGTH_BYTES] = {0};
     unsigned char alpha_bytes[4] = {0};
 
     // TLS connection with server
@@ -193,7 +193,7 @@ int main()
             size_t server_response_len = SSL_read(server_ssl, server_response, sizeof(server_response) - 1);
             if (server_response_len > 0)
             {
-                if (server_response_len < 16 + 4 + 16)
+                if (server_response_len < KEY_LENGTH_BYTES + 4 + KEY_LENGTH_BYTES)
                 {
                     throw std::runtime_error("Server join receipt is too short");
                 }
@@ -208,8 +208,8 @@ int main()
                         printf("\n");
                 }
                 printf("\n");
-                joinReceipt.shared_key.assign(server_response, server_response + 16);
-                joinReceipt.alpha_bytes.assign(server_response + 16, server_response + 20);
+                joinReceipt.shared_key.assign(server_response, server_response + KEY_LENGTH_BYTES);
+                joinReceipt.alpha_bytes.assign(server_response + KEY_LENGTH_BYTES, server_response + 20);
                 memcpy(shared_key_RA, joinReceipt.shared_key.data(), sizeof(shared_key_RA));
                 memcpy(alpha_bytes, joinReceipt.alpha_bytes.data(), sizeof(alpha_bytes));
                 memcpy(shared_key_AS, server_response + 20, sizeof(shared_key_AS));
@@ -303,7 +303,7 @@ int main()
                     printf("\n");
             }
             printf("\n");
-            SG = intToHex(SGId, 2 * SG_LENGTH);
+            SG = intToHex(SGId, 2 * SG_LENGTH_BYTES);
             commitment = CMGen(password.toVector(), fin_msg, fin_msg_len);
 
             std::cout << "=== Calculation Complete ===" << std::endl;
@@ -356,6 +356,7 @@ int main()
                 long time1 = getCurrentTimeMillis();
                 const Parameter &params = dgtotp.getParameter();
                 int current_epoch_j = (int)((time1 - params.getStartTime()) / params.getDeltaE());
+                std::cout << "In Client, current_epoch_j=" << std::dec << current_epoch_j << std::endl;
 
                 int result = TagCheck(shared_key_AS, current_epoch_j, SG, commitment, buf, bytes);
                 if (result == 1)

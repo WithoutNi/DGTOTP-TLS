@@ -1,6 +1,7 @@
 #include <iostream>
 #include <cstring>
 #include <cstdlib>
+#include <cerrno>
 #include <string>
 #include <vector>
 #include <ctime>
@@ -26,6 +27,8 @@
 #define SERVER_IP "127.0.0.1"
 #define SERVER_PORT 4433
 #define BUFFER_SIZE 4096
+#define SERVER_CONNECT_RETRY_COUNT 50
+#define SERVER_CONNECT_RETRY_DELAY_US 200000
 
 // Global variables to store Finished message
 static unsigned char fin_msg[BUFFER_SIZE];
@@ -148,6 +151,45 @@ SSL_CTX *create_client_context()
     return ctx;
 }
 
+int connect_to_server_with_retry(const struct sockaddr_in &server_addr)
+{
+    int last_errno = 0;
+
+    for (int attempt = 1; attempt <= SERVER_CONNECT_RETRY_COUNT; ++attempt)
+    {
+        int server_sock = socket(AF_INET, SOCK_STREAM, 0);
+        if (server_sock < 0)
+        {
+            perror("socket");
+            return -1;
+        }
+
+        if (connect(server_sock, (const struct sockaddr *)&server_addr, sizeof(server_addr)) == 0)
+        {
+            if (attempt > 1)
+            {
+                printf("Connected to server after %d attempts\n", attempt);
+            }
+            return server_sock;
+        }
+
+        last_errno = errno;
+        close(server_sock);
+
+        if (attempt == 1 || attempt % 10 == 0)
+        {
+            printf("Server not ready on %s:%d, retrying... (%d/%d)\n",
+                   SERVER_IP, SERVER_PORT, attempt, SERVER_CONNECT_RETRY_COUNT);
+        }
+
+        usleep(SERVER_CONNECT_RETRY_DELAY_US);
+    }
+
+    errno = last_errno;
+    perror("Failed to connect to server");
+    return -1;
+}
+
 // Configure server context
 void configure_server_context(SSL_CTX *ctx)
 {
@@ -203,7 +245,7 @@ int main()
     SSL_set_msg_callback_arg(client_ssl, NULL);
 
     unsigned char client_msg[BUFFER_SIZE];
-    size_t client_msg_length = 0;
+    int client_msg_length = 0;
 
     // Perform TLS handshake
     if (SSL_accept(client_ssl))
@@ -242,16 +284,15 @@ int main()
     SSL_CTX *client_ctx = create_client_context();
     SSL_CTX_set_min_proto_version(client_ctx, TLS1_3_VERSION);
 
-    int server_sock = socket(AF_INET, SOCK_STREAM, 0);
     struct sockaddr_in server_addr2;
     memset(&server_addr2, 0, sizeof(server_addr2));
     server_addr2.sin_family = AF_INET;
     server_addr2.sin_port = htons(SERVER_PORT);
     inet_pton(AF_INET, SERVER_IP, &server_addr2.sin_addr);
 
-    if (connect(server_sock, (struct sockaddr *)&server_addr2, sizeof(server_addr2)))
+    int server_sock = connect_to_server_with_retry(server_addr2);
+    if (server_sock < 0)
     {
-        perror("Failed to connect to server");
         // Clean up resources
         SSL_free(client_ssl);
         close(client_fd);
@@ -266,7 +307,7 @@ int main()
     SSL_set_fd(server_ssl, server_sock);
 
     unsigned char server_response[BUFFER_SIZE];
-    size_t server_response_length = 0;
+    int server_response_length = 0;
 
     // Perform TLS handshake and communication
     if (SSL_connect(server_ssl) <= 0)
@@ -290,8 +331,8 @@ int main()
                 if (server_response_length > 0)
                 {
                     server_response[server_response_length] = '\0';
-                    printf("Received mac from server: %zu bytes\n", server_response_length);
-                    for (size_t i = 0; i < server_response_length; i++)
+                    printf("Received mac from server: %d bytes\n", server_response_length);
+                    for (int i = 0; i < server_response_length; i++)
                     {
                         printf("%02X ", server_response[i]);
                         if ((i + 1) % 16 == 0)
@@ -347,11 +388,11 @@ int main()
         if (select_result > 0 && FD_ISSET(client_fd, &read_fds))
         {
             // Read client message
-            size_t new_msg_length = SSL_read(client_ssl, new_client_msg, sizeof(new_client_msg) - 1);
+            int new_msg_length = SSL_read(client_ssl, new_client_msg, sizeof(new_client_msg) - 1);
             if (new_msg_length > 0)
             {
                 new_client_msg[new_msg_length] = '\0';
-                printf("Received DGTOTP password from client: %zu bytes\n", new_msg_length);
+                printf("Received DGTOTP password from client: %d bytes\n", new_msg_length);
                 int result = ComVerify(new_client_msg, new_msg_length, fin_msg, fin_msg_len, Com, Com_len);
 
                 if (result == 1)
@@ -364,7 +405,7 @@ int main()
 
                         // Wait for server response
                         unsigned char new_server_response[BUFFER_SIZE];
-                        size_t response_len = SSL_read(server_ssl, new_server_response, sizeof(new_server_response) - 1);
+                        int response_len = SSL_read(server_ssl, new_server_response, sizeof(new_server_response) - 1);
                         if (response_len > 0)
                         {
                             new_server_response[response_len] = '\0';

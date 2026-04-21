@@ -115,12 +115,12 @@ int SGIdGen(const unsigned char *subgroup_key, size_t key_len, const std::string
         throw std::invalid_argument("Empty identity passed to SGIdGen");
     }
 
-    unsigned char sg_id[SG_LENGTH];
-    prf1(sg_id, SG_LENGTH, const_cast<unsigned char *>(subgroup_key), key_len,
+    unsigned char sg_id[SG_LENGTH_BYTES];
+    prf1(sg_id, SG_LENGTH_BYTES, const_cast<unsigned char *>(subgroup_key), key_len,
          reinterpret_cast<const unsigned char *>(id.data()), id.size());
 
     int result = 0;
-    for (size_t i = 0; i < SG_LENGTH; ++i)
+    for (size_t i = 0; i < SG_LENGTH_BYTES; ++i)
     {
         result = (result << 8) | sg_id[i];
     }

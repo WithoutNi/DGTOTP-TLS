@@ -9,14 +9,15 @@
 
 #include "AS.h"
 
-#define ID_LENGTH 16
-#define SG_LENGTH 1
-#define SG_NUM (1 << (8 * SG_LENGTH))
-#define EPOCH_COUNT 2
-#define TOTAL_MEMBER_NUMBER 1000
+constexpr size_t SECURITY_PARAMETER_BITS = 128;
+constexpr size_t KEY_LENGTH_BYTES = SECURITY_PARAMETER_BITS / 8;
+constexpr size_t ID_LENGTH_BYTES = 16;
+constexpr size_t SG_LENGTH_BYTES = 1;
+constexpr size_t SG_NUM = 1 << (8 * SG_LENGTH_BYTES);
+constexpr size_t EPOCH_COUNT = 4;
+constexpr size_t TOTAL_MEMBER_NUMBER = 1178;
 
 /// Public subgroup key shared by client/server when computing subgroup IDs.
-/// SGId = PRF(k_sg, ID), truncated to SG_LENGTH bytes.
 extern const unsigned char k_sg[16];
 
 /// Generate commitment from password and finished message
@@ -44,11 +45,11 @@ void prf1(unsigned char *out, size_t outlen, unsigned char *ki, size_t key_len, 
 void prf(unsigned char *out, size_t outlen, unsigned char *ki, size_t key_len, int index);
 
 /// Compute subgroup identifier SGId for selecting the corresponding params/RA instance.
-/// The PRF output is folded into the range [0，2^（8*SG_LENGTH)).
+/// The PRF output is folded into the range [0，2^（8*SG_LENGTH_BYTES)).
 /// @param[in] subgroup_key Key material used to derive the subgroup identifier
 /// @param[in] key_len      Subgroup key length
 /// @param[in] id           Member identity string
-/// @return Integer subgroup identifier in [0, 2^(8*SG_LENGTH))
+/// @return Integer subgroup identifier in [0, 2^(8*SG_LENGTH_BYTES))
 int SGIdGen(const unsigned char *subgroup_key, size_t key_len, const std::string &id);
 
 /// Convert byte array to string

@@ -13,9 +13,11 @@ int Verifier::Verify(const std::vector<std::string> &password, long time, Parame
 {
     // Get current verification epoch
     current_verify_epoch = (int)((time - params.getStartTime()) / params.getDeltaE());
+    std::cout << "In Verifier, current_verify_epoch=" << std::dec << current_verify_epoch << std::endl;
 
     // Calculate password sequence number
     int pw_sequence = (time - current_verify_epoch * params.getDeltaE() - params.getStartTime()) / params.getDeltaS();
+    std::cout << "In Verifier, pw_sequence=" << std::dec << pw_sequence << std::endl;
 
     // Get TOTP verification point (byte array)
     unsigned char *cache_tem = TOTP::toBytes(password[0]);

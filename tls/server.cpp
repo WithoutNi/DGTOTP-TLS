@@ -4,6 +4,7 @@
 #include <vector>
 #include <ctime>
 #include <chrono>
+#include <stdexcept>
 #include <unistd.h>
 #include <arpa/inet.h>
 
@@ -155,6 +156,32 @@ std::vector<std::vector<unsigned char>> TagGen(
     return tag_collection;
 }
 
+// Setup initializes all subgroup RA instances and AS-side
+// secret-key seeds used to derive subgroup shared keys.
+void Setup(int securityParameter,
+           int subgroupCount,
+           int groupMemberCount,
+           long sharedStartTime,
+           long endTime,
+           int verificationPeriod,
+           int passwordGenerationPeriod,
+           std::vector<DGTOTP> &dgtotpVec,
+           std::vector<unsigned char *> &sk_ske)
+{
+    if (dgtotpVec.size() != subgroupCount || sk_ske.size() != subgroupCount)
+    {
+        throw std::invalid_argument("Setup containers must match subgroup count");
+    }
+
+    for (size_t i = 0; i < subgroupCount; ++i)
+    {
+        const std::string groupName = "DGTOTP" + std::to_string(i);
+        dgtotpVec[i].RASetup(securityParameter, groupName, groupMemberCount, sharedStartTime,
+                             endTime, verificationPeriod, passwordGenerationPeriod);
+        sk_ske[i] = DGTOTP_PRF::createKey();
+    }
+}
+
 int main()
 {
     SSL_CTX *ctx, *ctx1;
@@ -168,25 +195,18 @@ int main()
     SSL_load_error_strings();
 
     const long sharedStartTime = getSharedProtocolStartTimeMillis();
-    const size_t subgroupCount = SG_NUM;
-    const int securityParameter = SECURITY_PARAMETER_BITS;
     const int groupMemberCount = 4;
     const int verificationPeriod = 300000;
     const int passwordGenerationPeriod = 5000;
     const long endTime = sharedStartTime + EPOCH_COUNT * verificationPeriod;
 
     // Pre-initialize all subgroup-specific DGTOTP instances.
-    std::vector<DGTOTP> dgtotpVec(subgroupCount);
-    std::vector<unsigned char *> sk_ske(subgroupCount);
+    std::vector<DGTOTP> dgtotpVec(SG_NUM);
+    std::vector<unsigned char *> sk_ske(SG_NUM);
     AS as;
 
-    for (size_t i = 0; i < subgroupCount; ++i)
-    {
-        const std::string groupName = "DGTOTP" + std::to_string(i);
-        dgtotpVec[i].RASetup(securityParameter, groupName, groupMemberCount, sharedStartTime,
-                             endTime, verificationPeriod, passwordGenerationPeriod);
-        sk_ske[i] = DGTOTP_PRF::createKey();
-    }
+    Setup(SECURITY_PARAMETER_BITS, SG_NUM, groupMemberCount, sharedStartTime, endTime,
+          verificationPeriod, passwordGenerationPeriod, dgtotpVec, sk_ske);
 
     long currentTime = getCurrentTimeMillis();
     std::cout << "current time: " << currentTime << std::endl;
@@ -235,7 +255,7 @@ int main()
                 std::cout << "memberId_string: " << memberId << std::endl;
 
                 selectedSGId = SGIdGen(k_sg, sizeof(k_sg), memberId);
-                if (selectedSGId < 0 || static_cast<size_t>(selectedSGId) >= subgroupCount)
+                if (selectedSGId < 0 || static_cast<size_t>(selectedSGId) >= SG_NUM)
                 {
                     throw std::runtime_error("Computed SGId out of range");
                 }

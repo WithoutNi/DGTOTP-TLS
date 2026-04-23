@@ -18,7 +18,6 @@
 #include "util.h"
 
 #define NTESTS 10
-#define BENCH_SUBGROUP_COUNT SG_NUM
 
 static long getCurrentTimeMillis()
 {
@@ -250,19 +249,22 @@ static int TagCheck(unsigned char ki[],
     return 0;
 }
 
-static void addAsSharedKey(AS &as, int sgId, const unsigned char *sk_ske)
+static std::vector<unsigned char> flattenTagCollection(const std::vector<std::vector<unsigned char>> &tag_collection)
 {
-    Skey skey;
-    skey.SGId = sgId;
-    skey.key.resize(KEY_LENGTH_BYTES);
+    size_t total_size = 0;
+    for (const auto &tag : tag_collection)
+    {
+        total_size += tag.size();
+    }
 
-    unsigned char rv[KEY_LENGTH_BYTES];
-    RAND_bytes(rv, KEY_LENGTH_BYTES);
-    const std::string msg = "SK" + bytesToHex(rv, KEY_LENGTH_BYTES);
+    std::vector<unsigned char> buffer;
+    buffer.reserve(total_size);
+    for (const auto &tag : tag_collection)
+    {
+        buffer.insert(buffer.end(), tag.begin(), tag.end());
+    }
 
-    prf1(skey.key.data(), skey.key.size(), const_cast<unsigned char *>(sk_ske), KEY_LENGTH_BYTES,
-         reinterpret_cast<const unsigned char *>(msg.data()), msg.size());
-    as.AddSkey(skey);
+    return buffer;
 }
 
 static std::vector<unsigned char> buildReceivedMessage(const pw_CM &commitment, int sgId)
@@ -279,13 +281,12 @@ int main()
 
     const long sharedStartTime = getSharedProtocolStartTimeMillis();
     const int securityParameter = SECURITY_PARAMETER_BITS;
+    const int subgroupCount = SG_NUM;
     const int groupMemberCount = 64;
     const int verificationPeriod = 300000;
     const int passwordGenerationPeriod = 5000;
     const long endTime = sharedStartTime + EPOCH_COUNT * verificationPeriod;
     const long protocolTime = getCurrentTimeMillis();
-    const std::string memberId = makeMemberId(0);
-
     unsigned char fin_msg[32] = {0};
     RAND_bytes(fin_msg, sizeof(fin_msg));
 
@@ -317,8 +318,8 @@ int main()
             SECURITY_PARAMETER_BITS, SG_NUM, groupMemberCount,
             sharedStartTime, endTime, verificationPeriod, passwordGenerationPeriod);
 
-    std::vector<DGTOTP> dgtotpVec(BENCH_SUBGROUP_COUNT);
-    std::vector<unsigned char *> setupSkSke(BENCH_SUBGROUP_COUNT, nullptr);
+    std::vector<DGTOTP> dgtotpVec(SG_NUM);
+    std::vector<unsigned char *> setupSkSke(SG_NUM, nullptr);
 
     MEASURE("Setup..", 1, {
         for (size_t j = 0; j < setupSkSke.size(); ++j)
@@ -326,7 +327,7 @@ int main()
             free(setupSkSke[j]);
             setupSkSke[j] = nullptr;
         }
-        Setup(securityParameter, BENCH_SUBGROUP_COUNT, groupMemberCount, sharedStartTime, endTime,
+        Setup(securityParameter, SG_NUM, groupMemberCount, sharedStartTime, endTime,
               verificationPeriod, passwordGenerationPeriod, dgtotpVec, setupSkSke);
     });
     save_result(fp, "Setup", t, NTESTS);
@@ -338,7 +339,7 @@ int main()
     std::vector<int> memberSGIds(NTESTS);
     for (size_t j = 0; j < memberIds.size(); ++j)
     {
-        memberIds[j] = makeMemberId(j + 1);
+        memberIds[j] = makeMemberId(j);
     }
 
     MEASURE("SGIdGen..", 1, {
@@ -352,92 +353,109 @@ int main()
     MEASURE("Join..", 1, dgtotpVec[memberSGIds[i]].Join(memberIds[i], protocolTime));
     save_result(fp, "Join", t, NTESTS);
 
-    const int memberSGId = SGIdGen(k_sg, sizeof(k_sg), memberId);
-    DGTOTP &dgtotp = dgtotpVec[memberSGId];
-    dgtotp.PInit(memberId);
-    dgtotp.Join(memberId, protocolTime);
-    DGTOTP::Password password = dgtotp.PwGen(memberId, protocolTime);
+    std::vector<std::vector<unsigned char>> kiVec(NTESTS);
+    AS as;
+    for (size_t j = 0; j < memberIds.size(); ++j)
+    {
+        Skey skey;
+        skey.SGId = memberSGIds[j];
+        skey.key.resize(KEY_LENGTH_BYTES);
+        unsigned char rv[KEY_LENGTH_BYTES];
+        RAND_bytes(rv, KEY_LENGTH_BYTES);
+        std::string msg = "SK" + bytesToHex(rv, KEY_LENGTH_BYTES);
+        prf1(skey.key.data(), skey.key.size(),
+             setupSkSke[memberSGIds[j]], KEY_LENGTH_BYTES,
+             reinterpret_cast<const unsigned char *>(msg.c_str()), msg.length());
+        kiVec[j] = skey.key;
+        as.AddSkey(skey);
+    }
+
+    std::vector<DGTOTP::Password> passwords(NTESTS);
 
     MEASURE("PwGen..", 1, {
-        DGTOTP::Password pw = dgtotp.PwGen(memberId, protocolTime);
-        (void)pw;
+        passwords[i] = dgtotpVec[memberSGIds[i]].PwGen(memberIds[i], protocolTime);
     });
     save_result(fp, "PwGen", t, NTESTS);
 
-    pw_CM commitment = CMGen(password.toVector(), fin_msg, sizeof(fin_msg));
+    std::vector<pw_CM> commitments(NTESTS);
 
     MEASURE("CMGen..", 1, {
-        fin_msg[0] = static_cast<unsigned char>(i);
-        pw_CM cm = CMGen(password.toVector(), fin_msg, sizeof(fin_msg));
-        (void)cm;
+        commitments[i] = CMGen(passwords[i].toVector(), fin_msg, sizeof(fin_msg));
     });
     save_result(fp, "CMGen", t, NTESTS);
 
-    AS as;
-    addAsSharedKey(as, memberSGId, setupSkSke[memberSGId]);
-
     std::vector<std::vector<unsigned char>> messages(NTESTS);
-    for (size_t i = 0; i < messages.size(); ++i)
+    for (size_t j = 0; j < messages.size(); ++j)
     {
-        fin_msg[0] = static_cast<unsigned char>(i);
-        std::vector<std::string> itemPassword = password.toVector();
-        itemPassword[0] += std::to_string(i);
-        pw_CM itemCommitment = CMGen(itemPassword, fin_msg, sizeof(fin_msg));
-        messages[i] = buildReceivedMessage(itemCommitment, memberSGId);
+        messages[j] = buildReceivedMessage(commitments[j], memberSGIds[j]);
     }
 
+    std::vector<std::vector<std::vector<unsigned char>>> tagCollections(NTESTS);
+
     MEASURE("TagGen..", 1, {
-        std::vector<std::vector<unsigned char>> tags =
-            TagGen(dgtotp.getParameter(), as, messages[i].data(), messages[i].size());
-        (void)tags;
+        tagCollections[i] =
+            TagGen(dgtotpVec[memberSGIds[i]].getParameter(), as, messages[i].data(), messages[i].size());
     });
     save_result(fp, "TagGen", t, NTESTS);
 
     const int current_epoch_j =
-        static_cast<int>((getCurrentTimeMillis() - dgtotp.getParameter().getStartTime()) /
-                         dgtotp.getParameter().getDeltaE());
-    const std::string SG = intToHex(memberSGId, 2 * SG_LENGTH_BYTES);
-    const std::vector<unsigned char> tagMessage = buildReceivedMessage(commitment, memberSGId);
-    AS tagAs;
-    addAsSharedKey(tagAs, memberSGId, setupSkSke[memberSGId]);
-    std::vector<std::vector<unsigned char>> tagVectors =
-        TagGen(dgtotp.getParameter(), tagAs, tagMessage.data(), tagMessage.size());
+        static_cast<int>((getCurrentTimeMillis() - sharedStartTime) / verificationPeriod);
 
-    std::vector<unsigned char> tagBuffer;
-    for (const auto &tag : tagVectors)
+    std::vector<std::vector<unsigned char>> tagBuffers(NTESTS);
+    for (size_t j = 0; j < tagBuffers.size(); ++j)
     {
-        tagBuffer.insert(tagBuffer.end(), tag.begin(), tag.end());
+        tagBuffers[j] = flattenTagCollection(tagCollections[j]);
     }
-    Skeys tagCheckKeys = tagAs.QuerySkeysBySGId(memberSGId);
-    if (tagCheckKeys.empty())
-    {
-        throw std::runtime_error("TagCheck benchmark key is missing");
-    }
+
+    std::vector<int> tagCheckResults(NTESTS, 0);
 
     MEASURE("TagCheck..", 1, {
-        volatile int result = TagCheck(tagCheckKeys[0].key.data(), current_epoch_j,
-                                       SG, commitment, tagBuffer.data(), tagBuffer.size());
-        (void)result;
+        tagCheckResults[i] = TagCheck(kiVec[i].data(), current_epoch_j,
+                                      intToHex(memberSGIds[i], 2 * SG_LENGTH_BYTES),
+                                      commitments[i], tagBuffers[i].data(), tagBuffers[i].size());
     });
     save_result(fp, "TagCheck", t, NTESTS);
 
+    std::vector<int> verifyResults(NTESTS, 0);
+
     MEASURE("Verify..", 1, {
-        volatile int result = dgtotp.Verify(password, protocolTime);
-        (void)result;
+        verifyResults[i] = dgtotpVec[memberSGIds[i]].Verify(passwords[i], protocolTime);
     });
     save_result(fp, "Verify", t, NTESTS);
 
+    std::vector<std::string> openedIds(NTESTS);
+
     MEASURE("Open..", 1, {
-        std::string openedId = dgtotp.Open(password, protocolTime);
-        (void)openedId;
+        openedIds[i] = dgtotpVec[memberSGIds[i]].Open(passwords[i], protocolTime);
     });
     save_result(fp, "Open", t, NTESTS);
 
+    std::vector<int> revokeResults(NTESTS, 0);
+
     MEASURE("Revoke..", 1, {
-        volatile int result = dgtotpVec[memberSGIds[i]].Revoke(memberIds[i]);
-        (void)result;
+        revokeResults[i] = dgtotpVec[memberSGIds[i]].Revoke(memberIds[i]);
     });
     save_result(fp, "Revoke", t, NTESTS);
+
+    printf("TagCheck results:");
+    fprintf(fp, "TagCheckResults");
+    for (size_t j = 0; j < NTESTS; ++j)
+    {
+        printf(" %d", tagCheckResults[j]);
+        fprintf(fp, " %d", tagCheckResults[j]);
+    }
+    printf("\n");
+    fprintf(fp, "\n");
+
+    printf("Verify results:");
+    fprintf(fp, "VerifyResults");
+    for (size_t j = 0; j < NTESTS; ++j)
+    {
+        printf(" %d", verifyResults[j]);
+        fprintf(fp, " %d", verifyResults[j]);
+    }
+    printf("\n");
+    fprintf(fp, "\n");
 
     printf("Raw cycle samples saved to benchmark_dgtotp.txt\n");
 

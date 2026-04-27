@@ -274,6 +274,48 @@ static std::vector<unsigned char> buildReceivedMessage(const pw_CM &commitment, 
     return std::vector<unsigned char>(payload.begin(), payload.end());
 }
 
+static std::vector<unsigned char> buildPasswordMessage(const DGTOTP::Password &password)
+{
+    const std::string payload = "PW:" + password.totp_password +
+                                password.collision_randomness +
+                                password.identity_ciphertext;
+    return std::vector<unsigned char>(payload.begin(), payload.end());
+}
+
+static int CMVerify(const unsigned char *msg,
+                    size_t msg_len,
+                    unsigned char *fin_msg,
+                    size_t fin_msg_len,
+                    const unsigned char *com,
+                    size_t com_len)
+{
+    const size_t prefix_len = 3;
+    const size_t totp_len = 64;
+    const size_t randomness_len = 32;
+    const size_t identity_len = 20;
+    const size_t password_len = totp_len + randomness_len + identity_len;
+
+    if (msg_len < prefix_len + password_len || memcmp(msg, "PW:", prefix_len) != 0)
+    {
+        return 0;
+    }
+
+    const char *pw_data = reinterpret_cast<const char *>(msg + prefix_len);
+    std::vector<std::string> password;
+    password.push_back(std::string(pw_data, totp_len));
+    password.push_back(std::string(pw_data + totp_len, randomness_len));
+    password.push_back(std::string(pw_data + totp_len + randomness_len, identity_len));
+
+    const pw_CM commitment = CMGen(password, fin_msg, fin_msg_len);
+    const std::string serializedCommitment = commitment.UCM + commitment.SCM;
+    if (serializedCommitment.size() != com_len)
+    {
+        return 0;
+    }
+
+    return memcmp(com, serializedCommitment.data(), com_len) == 0 ? 1 : 0;
+}
+
 int main()
 {
     setbuf(stdout, NULL);
@@ -307,7 +349,7 @@ int main()
         return 1;
     }
 
-    printf("DGTOTP benchmark\n");
+    printf("DGTOTP-TLS benchmark\n");
     printf("Running %d iterations.\n", NTESTS);
     fprintf(fp, "DGTOTP benchmark\n");
     fprintf(fp, "iterations=%d\n", NTESTS);
@@ -390,6 +432,15 @@ int main()
         messages[j] = buildReceivedMessage(commitments[j], memberSGIds[j]);
     }
 
+    std::vector<std::vector<unsigned char>> passwordMessages(NTESTS);
+    std::vector<std::vector<unsigned char>> commitmentBuffers(NTESTS);
+    for (size_t j = 0; j < passwordMessages.size(); ++j)
+    {
+        passwordMessages[j] = buildPasswordMessage(passwords[j]);
+        const std::string serializedCommitment = commitments[j].UCM + commitments[j].SCM;
+        commitmentBuffers[j] = std::vector<unsigned char>(serializedCommitment.begin(), serializedCommitment.end());
+    }
+
     std::vector<std::vector<std::vector<unsigned char>>> tagCollections(NTESTS);
 
     MEASURE("TagGen..", 1, {
@@ -416,12 +467,21 @@ int main()
     });
     save_result(fp, "TagCheck", t, NTESTS);
 
-    std::vector<int> verifyResults(NTESTS, 0);
+    std::vector<int> cmVerifyResults(NTESTS, 0);
 
-    MEASURE("Verify..", 1, {
-        verifyResults[i] = dgtotpVec[memberSGIds[i]].Verify(passwords[i], protocolTime);
+    MEASURE("CMVerify..", 1, {
+        cmVerifyResults[i] = CMVerify(passwordMessages[i].data(), passwordMessages[i].size(),
+                                      fin_msg, sizeof(fin_msg),
+                                      commitmentBuffers[i].data(), commitmentBuffers[i].size());
     });
-    save_result(fp, "Verify", t, NTESTS);
+    save_result(fp, "CMVerify", t, NTESTS);
+
+    std::vector<int> pwVerifyResults(NTESTS, 0);
+
+    MEASURE("PwVerify..", 1, {
+        pwVerifyResults[i] = dgtotpVec[memberSGIds[i]].Verify(passwords[i], protocolTime);
+    });
+    save_result(fp, "PwVerify", t, NTESTS);
 
     std::vector<std::string> openedIds(NTESTS);
 
@@ -447,12 +507,22 @@ int main()
     printf("\n");
     fprintf(fp, "\n");
 
-    printf("Verify results:");
-    fprintf(fp, "VerifyResults");
+    printf("CMVerify results:");
+    fprintf(fp, "ComVerifyResults");
     for (size_t j = 0; j < NTESTS; ++j)
     {
-        printf(" %d", verifyResults[j]);
-        fprintf(fp, " %d", verifyResults[j]);
+        printf(" %d", cmVerifyResults[j]);
+        fprintf(fp, " %d", cmVerifyResults[j]);
+    }
+    printf("\n");
+    fprintf(fp, "\n");
+
+    printf("PwVerify results:");
+    fprintf(fp, "PwVerifyResults");
+    for (size_t j = 0; j < NTESTS; ++j)
+    {
+        printf(" %d", pwVerifyResults[j]);
+        fprintf(fp, " %d", pwVerifyResults[j]);
     }
     printf("\n");
     fprintf(fp, "\n");

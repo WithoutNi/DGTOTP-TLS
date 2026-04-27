@@ -1,19 +1,20 @@
 DGTOTP benchmark
 Running 10 iterations.
-Parameters: k = 128, m = 256, U = 64, T_s = 1776953400000,  T_e = 1776954600000, Δe = 300000, Δs = 5000
-Setup..     avg.   4538633.33 us ( 4538.63 ms); median   14,452,763,184 cycles,     1x:   14,452,763,184 cycles
-prf1..      avg.         0.80 us (    0.00 ms); median            1,569 cycles,     1x:            1,569 cycles
-SGIdGen..   avg.         0.61 us (    0.00 ms); median            1,648 cycles,     1x:            1,648 cycles
-PInit..     avg.         4.23 us (    0.00 ms); median            8,137 cycles,     1x:            8,137 cycles
-Join..      avg.         1.64 us (    0.00 ms); median            4,120 cycles,     1x:            4,120 cycles
-PwGen..     avg.        94.55 us (    0.09 ms); median          288,039 cycles,     1x:          288,039 cycles
-CMGen..     avg.         1.07 us (    0.00 ms); median            2,493 cycles,     1x:            2,493 cycles
-TagGen..    avg.         3.60 us (    0.00 ms); median            9,285 cycles,     1x:            9,285 cycles
-TagCheck..  avg.         2.15 us (    0.00 ms); median            6,191 cycles,     1x:            6,191 cycles
-Verify..    avg.      4659.30 us (    4.66 ms); median       13,360,742 cycles,     1x:       13,360,742 cycles
-Open..      avg.      4206.02 us (    4.21 ms); median       12,789,662 cycles,     1x:       12,789,662 cycles
-Revoke..    avg.         0.68 us (    0.00 ms); median            1,985 cycles,     1x:            1,985 cycles
+Parameters: k = 128, m = 256, U = 64, T_s = 1777269000000,  T_e = 1777270200000, Δe = 300000, Δs = 5000
+Setup..     avg.   4220684.59 us ( 4220.68 ms); median    9,260,343,772 cycles,     1x:    9,260,343,772 cycles
+prf1..      avg.         6.25 us (    0.01 ms); median            2,105 cycles,     1x:            2,105 cycles
+SGIdGen..   avg.         1.03 us (    0.00 ms); median            1,936 cycles,     1x:            1,936 cycles
+PInit..     avg.         4.39 us (    0.00 ms); median            5,661 cycles,     1x:            5,661 cycles
+Join..      avg.         1.71 us (    0.00 ms); median            2,807 cycles,     1x:            2,807 cycles
+PwGen..     avg.       134.74 us (    0.13 ms); median          287,791 cycles,     1x:          287,791 cycles
+CMGen..     avg.         0.99 us (    0.00 ms); median            1,548 cycles,     1x:            1,548 cycles
+TagGen..    avg.         5.28 us (    0.01 ms); median            9,497 cycles,     1x:            9,497 cycles
+TagCheck..  avg.         3.28 us (    0.00 ms); median            6,469 cycles,     1x:            6,469 cycles
+CMVerify..  avg.         1.13 us (    0.00 ms); median            2,003 cycles,     1x:            2,003 cycles
+PwVerify..  avg.      4387.63 us (    4.39 ms); median        9,660,105 cycles,     1x:        9,660,105 cycles
+Open..      avg.      4668.79 us (    4.67 ms); median       10,494,904 cycles,     1x:       10,494,904 cycles
+Revoke..    avg.         1.04 us (    0.00 ms); median            1,868 cycles,     1x:            1,868 cycles
 TagCheck results: 1 1 1 1 1 1 1 1 1 1
-Verify results: 1 1 1 1 1 1 1 1 1 1
+CMVerify results: 1 1 1 1 1 1 1 1 1 1
+PwVerify results: 1 1 1 1 1 1 1 1 1 1
 Raw cycle samples saved to benchmark_dgtotp.txt
-

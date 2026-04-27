@@ -37,7 +37,7 @@ static size_t fin_msg_len = 0;
 static unsigned char Com[BUFFER_SIZE];
 static size_t Com_len = 0;
 
-int ComVerify(unsigned char *msg, size_t msg_len, unsigned char *fin_msg, size_t fin_msg_len, unsigned char *com, size_t com_len)
+int CMVerify(unsigned char *msg, size_t msg_len, unsigned char *fin_msg, size_t fin_msg_len, unsigned char *com, size_t com_len)
 {
     // Convert received message to string
     std::string received_data((char *)msg, msg_len);
@@ -393,7 +393,7 @@ int main()
             {
                 new_client_msg[new_msg_length] = '\0';
                 printf("Received DGTOTP password from client: %d bytes\n", new_msg_length);
-                int result = ComVerify(new_client_msg, new_msg_length, fin_msg, fin_msg_len, Com, Com_len);
+                int result = CMVerify(new_client_msg, new_msg_length, fin_msg, fin_msg_len, Com, Com_len);
 
                 if (result == 1)
                 {

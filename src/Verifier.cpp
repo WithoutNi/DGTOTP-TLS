@@ -20,7 +20,8 @@ int Verifier::Verify(const std::vector<std::string> &password, long time, Parame
     // std::cout << "In Verifier, pw_sequence=" << std::dec << pw_sequence << std::endl;
 
     // Get TOTP verification point (byte array)
-    unsigned char *cache_tem = TOTP::toBytes(password[0]);
+    unsigned char *cache_tem = static_cast<unsigned char *>(malloc(32));
+    memcpy(cache_tem, password[0].data(), 32);
 
     // Calculate verification point
     for (int i = 0; i < pw_sequence + 1; i++)
@@ -30,8 +31,9 @@ int Verifier::Verify(const std::vector<std::string> &password, long time, Parame
         free(temp);
     }
 
-    // TOTP verification point (string)
-    std::string vp = Member::byte2hex(cache_tem, 32);
+    // TOTP verification point
+    std::string vp(reinterpret_cast<char *>(cache_tem), 32);
+    std::string vp_hex = Member::byte2hex(cache_tem, 32);
 
     // Get permuted MPI Id index
     int per_id_index = 0;
@@ -44,7 +46,7 @@ int Verifier::Verify(const std::vector<std::string> &password, long time, Parame
     }
 
     // Calculate chameleon hash value
-    unsigned char *vp_bytes = Parameter::Sha256(vp + password[2] + std::to_string(current_verify_epoch));
+    unsigned char *vp_bytes = Parameter::Sha256(vp_hex + password[2] + std::to_string(current_verify_epoch));
     int vp_point = params.getChameHash()->eval(vp_bytes, 32, params.getChKey()[per_id_index],
                                                (unsigned char *)password[1].c_str(), password[1].length());
 

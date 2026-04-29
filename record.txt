@@ -1,20 +1,50 @@
-DGTOTP benchmark
-Running 10 iterations.
-Parameters: k = 128, m = 256, U = 64, T_s = 1777269000000,  T_e = 1777270200000, Δe = 300000, Δs = 5000
-Setup..     avg.   4220684.59 us ( 4220.68 ms); median    9,260,343,772 cycles,     1x:    9,260,343,772 cycles
-prf1..      avg.         6.25 us (    0.01 ms); median            2,105 cycles,     1x:            2,105 cycles
-SGIdGen..   avg.         1.03 us (    0.00 ms); median            1,936 cycles,     1x:            1,936 cycles
-PInit..     avg.         4.39 us (    0.00 ms); median            5,661 cycles,     1x:            5,661 cycles
-Join..      avg.         1.71 us (    0.00 ms); median            2,807 cycles,     1x:            2,807 cycles
-PwGen..     avg.       134.74 us (    0.13 ms); median          287,791 cycles,     1x:          287,791 cycles
-CMGen..     avg.         0.99 us (    0.00 ms); median            1,548 cycles,     1x:            1,548 cycles
-TagGen..    avg.         5.28 us (    0.01 ms); median            9,497 cycles,     1x:            9,497 cycles
-TagCheck..  avg.         3.28 us (    0.00 ms); median            6,469 cycles,     1x:            6,469 cycles
-CMVerify..  avg.         1.13 us (    0.00 ms); median            2,003 cycles,     1x:            2,003 cycles
-PwVerify..  avg.      4387.63 us (    4.39 ms); median        9,660,105 cycles,     1x:        9,660,105 cycles
-Open..      avg.      4668.79 us (    4.67 ms); median       10,494,904 cycles,     1x:       10,494,904 cycles
-Revoke..    avg.         1.04 us (    0.00 ms); median            1,868 cycles,     1x:            1,868 cycles
-TagCheck results: 1 1 1 1 1 1 1 1 1 1
-CMVerify results: 1 1 1 1 1 1 1 1 1 1
-PwVerify results: 1 1 1 1 1 1 1 1 1 1
-Raw cycle samples saved to benchmark_dgtotp.txt
+DGTOTP-TLS benchmark
+Running 100 iterations.
+Parameters: k = 128, m = 256, U = 64, T_s = 1777470600000,  T_e = 1777471800000, Δe = 300000, Δs = 5000
+Setup..     avg.   4956772.45 us ( 4956.77 ms); median   14,650,871,610 cycles,     1x:   14,650,871,610 cycles
+prf1..      avg.         0.60 us (    0.00 ms); median            1,792 cycles,     1x:            1,792 cycles
+SGIdGen..   avg.         0.60 us (    0.00 ms); median            1,822 cycles,     1x:            1,822 cycles
+PInit..     avg.         3.72 us (    0.00 ms); median            8,283 cycles,     1x:            8,283 cycles
+Join..      avg.         1.26 us (    0.00 ms); median            3,531 cycles,     1x:            3,531 cycles
+PwGen..     avg.       110.14 us (    0.11 ms); median          333,145 cycles,     1x:          333,145 cycles
+CMGen..     avg.         0.67 us (    0.00 ms); median            1,849 cycles,     1x:            1,849 cycles
+TagGen..    avg.         5.00 us (    0.00 ms); median           12,316 cycles,     1x:           12,316 cycles
+TagCheck..  avg.         2.11 us (    0.00 ms); median            6,229 cycles,     1x:            6,229 cycles
+CMVerify..  avg.         0.84 us (    0.00 ms); median            2,496 cycles,     1x:            2,496 cycles
+PwVerify..  avg.      4895.07 us (    4.90 ms); median       15,086,723 cycles,     1x:       15,086,723 cycles
+Open..      avg.      4756.57 us (    4.76 ms); median       14,279,941 cycles,     1x:       14,279,941 cycles
+Revoke..    avg.         0.48 us (    0.00 ms); median            1,571 cycles,     1x:            1,571 cycles
+
+
+client TLS handshake computation time 平均值: 987.86 us (0.9878 ms, 100 samples)
+[TLS Handshake Stats] computation time: 600 us
+[TLS Handshake Stats] communication overhead: sent 279 bytes, received 1060 bytes, total 1339 bytes
+Connected to verifier with TLS_AES_128_GCM_SHA256
+alpha_ID: 0
+fin_msg:36 bytes
+14 00 00 20 8C 8F 6A 06 4A 19 6D B4 89 64 DC F1 
+34 6E 53 9A DB A0 8E EE 7E 99 F5 07 90 F1 35 6B 
+06 52 E0 F0 
+=== Calculation Complete ===
+TOTP Password: 79d5f8db3a28b70624d765f5a03cf2a1a9dff146acac1665d41b2e1f5f180106
+Chameleon Hash Collision: a61606f21336ba450a3900dc6edec6d80183723fe808940e445cda1707ead9fb
+Identity Ciphertext: f796436c83672ed3d20342183d4160fd4ea9e9a5
+UCM: f8630470a107097197cc1aaca5399cc96cfb4992565b4d056c7a64762b56cbe1
+SCM: d633d0ac1de77f98efeb5c797004cc3e828b7e0373a44872931e113798bb2679
+==========================
+[Write com Stats] communication overhead: sent 91 bytes, received 0 bytes, total 91 bytes
+Successfully sent commitment data: 69 bytes
+[Read tag Stats] communication overhead: sent 0 bytes, received 118 bytes, total 118 bytes
+Verifier response: 
+1D 84 93 63 2B 03 B1 82 A5 8E F7 B9 03 4E 4C D8 
+D8 EB CE FA 81 1C C6 68 5F BE 5D AB 64 B3 A7 87 
+5F 1E D5 D6 83 CC 63 91 92 34 1A 2D C1 99 8E 6F 
+CD 3E FE 42 BB 56 02 31 77 6C D1 9F 83 A4 23 51 
+D0 C9 70 4A 3D F6 CF 90 1E 8D 99 7C 07 38 C1 61 
+BB 68 95 E1 A4 E6 08 A9 6B AC B7 97 7E B3 57 19 
+
+In Client, current_epoch_j=1
+tag: 1d8493632b03b182a58ef7b9034e4cd8
+Verfiy tag success,sent DGTOTP password
+[Write pw Stats] communication overhead: sent 109 bytes, received 0 bytes, total 109 bytes
+Successfully sent password data: 87 bytes

@@ -17,7 +17,7 @@
 #include "cycles.h"
 #include "util.h"
 
-#define NTESTS 10
+#define NTESTS 100
 
 static long getCurrentTimeMillis()
 {
@@ -152,10 +152,10 @@ static std::vector<std::vector<unsigned char>> TagGen(
     const unsigned char *received_msg,
     size_t received_msg_len)
 {
-    const size_t commitment_len = 2 * SHA256_DIGEST_LENGTH * 2;
-    const size_t single_commitment_len = 2 * SHA256_DIGEST_LENGTH;
+    const size_t commitment_len = 2 * SHA256_DIGEST_LENGTH;
+    const size_t single_commitment_len = SHA256_DIGEST_LENGTH;
 
-    if (received_msg_len < commitment_len + 2 * SG_LENGTH_BYTES)
+    if (received_msg_len < commitment_len + SG_LENGTH_BYTES)
     {
         throw std::runtime_error("Received message too short");
     }
@@ -164,12 +164,10 @@ static std::vector<std::vector<unsigned char>> TagGen(
     std::string ucm = cm.substr(0, single_commitment_len);
     std::string scm = cm.substr(single_commitment_len, single_commitment_len);
 
-    unsigned char SG_hex[2 * SG_LENGTH_BYTES];
-    memcpy(SG_hex, received_msg + commitment_len, 2 * SG_LENGTH_BYTES);
-    std::string SG_hex_str(reinterpret_cast<char *>(SG_hex), 2 * SG_LENGTH_BYTES);
+    std::string SG(reinterpret_cast<const char *>(received_msg + commitment_len), SG_LENGTH_BYTES);
 
     Com com;
-    com.SGId = static_cast<int>(strtol(SG_hex_str.c_str(), nullptr, 16));
+    com.SGId = static_cast<unsigned char>(SG[0]);
     com.CM.UCM = ucm;
     com.CM.SCM = scm;
 
@@ -188,8 +186,7 @@ static std::vector<std::vector<unsigned char>> TagGen(
     const long time = getCurrentTimeMillis();
     const int current_epoch_j = static_cast<int>((time - params.getStartTime()) / params.getDeltaE());
     const std::string kg_input = std::string("KG") + std::to_string(current_epoch_j);
-    const std::string kt_input = std::string("KT") +
-                                 std::string(reinterpret_cast<const char *>(SG_hex), 2 * SG_LENGTH_BYTES);
+    const std::string kt_input = std::string("KT") + SG;
     const std::string tag_input = std::string("Tag") +
                                   std::string(reinterpret_cast<const char *>(received_msg), commitment_len);
 
@@ -269,7 +266,7 @@ static std::vector<unsigned char> flattenTagCollection(const std::vector<std::ve
 
 static std::vector<unsigned char> buildReceivedMessage(const pw_CM &commitment, int sgId)
 {
-    const std::string SG = intToHex(sgId, 2 * SG_LENGTH_BYTES);
+    const std::string SG = std::string(1, static_cast<char>(sgId));
     const std::string payload = commitment.UCM + commitment.SCM + SG;
     return std::vector<unsigned char>(payload.begin(), payload.end());
 }
@@ -290,7 +287,7 @@ static int CMVerify(const unsigned char *msg,
                     size_t com_len)
 {
     const size_t prefix_len = 3;
-    const size_t totp_len = 64;
+    const size_t totp_len = 32;
     const size_t randomness_len = 32;
     const size_t identity_len = 20;
     const size_t password_len = totp_len + randomness_len + identity_len;
@@ -462,7 +459,7 @@ int main()
 
     MEASURE("TagCheck..", 1, {
         tagCheckResults[i] = TagCheck(kiVec[i].data(), current_epoch_j,
-                                      intToHex(memberSGIds[i], 2 * SG_LENGTH_BYTES),
+                                      std::string(1, static_cast<char>(memberSGIds[i])),
                                       commitments[i], tagBuffers[i].data(), tagBuffers[i].size());
     });
     save_result(fp, "TagCheck", t, NTESTS);

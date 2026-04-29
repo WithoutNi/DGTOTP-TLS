@@ -30,6 +30,8 @@ fi
 total_runs=0
 tag_ge_2_count=0
 verify_success_count=0
+client_handshake_time_count=0
+client_handshake_time_total_us=0
 
 # 临时文件用于存储输出
 temp_output=$(mktemp)
@@ -124,6 +126,17 @@ for ((i=1; i<=RUN_COUNT; i++)); do
     # 等待所有进程完成
     echo "等待进程完成..." >> "$REPORT_FILE"
     sleep 3  # 根据你的程序实际运行时间调整
+
+    # 从client输出中提取TLS handshake计算时间（单位：us）
+    client_handshake_time_us=$(awk '/\[TLS Handshake Stats\] computation time:/ {print $(NF-1); exit}' "$client_log")
+    if [[ -n "$client_handshake_time_us" && "$client_handshake_time_us" =~ ^[0-9]+$ ]]; then
+        client_handshake_time_total_us=$((client_handshake_time_total_us + client_handshake_time_us))
+        client_handshake_time_count=$((client_handshake_time_count + 1))
+        echo "  client TLS handshake computation time: ${client_handshake_time_us} us" >> "$REPORT_FILE"
+    else
+        echo "  未找到client TLS handshake computation time" >> "$REPORT_FILE"
+        print_client_output "$client_log" "未找到client TLS handshake computation time"
+    fi
     
     # 从server输出中提取tag_collection.size()信息
     if grep -q "match tag number:" "$temp_output"; then
@@ -185,10 +198,17 @@ rm -rf "$log_dir"
 # 计算比例
 tag_ge_2_percentage=0
 verify_success_percentage=0
+client_handshake_time_avg_us=0
+client_handshake_time_avg_ms=0
 
 if [[ $total_runs -gt 0 ]]; then
     tag_ge_2_percentage=$(echo "scale=2; $tag_ge_2_count * 100 / $total_runs" | bc)
     verify_success_percentage=$(echo "scale=2; $verify_success_count * 100 / $total_runs" | bc)
+fi
+
+if [[ $client_handshake_time_count -gt 0 ]]; then
+    client_handshake_time_avg_us=$(echo "scale=2; $client_handshake_time_total_us / $client_handshake_time_count" | bc)
+    client_handshake_time_avg_ms=$(echo "scale=4; $client_handshake_time_avg_us / 1000" | bc)
 fi
 
 # 生成详细报告
@@ -207,6 +227,12 @@ fi
     echo "验证成功次数: $verify_success_count"
     echo "比例: $verify_success_percentage%"
     echo ""
+    echo "统计结果3: client TLS handshake computation time"
+    echo "----------------------------------------"
+    echo "成功提取次数: $client_handshake_time_count"
+    echo "总时间: ${client_handshake_time_total_us} us"
+    echo "平均时间: ${client_handshake_time_avg_us} us (${client_handshake_time_avg_ms} ms)"
+    echo ""
     echo "总结:"
     echo "tag_collection.size() >= 2 且 verifyResult == 1 的比例: "
     echo "=========================================="
@@ -220,3 +246,4 @@ echo "有效运行次数: $total_runs"
 echo ""
 echo "tag_collection.size() >= 2 的比例: $tag_ge_2_percentage% ($tag_ge_2_count/$total_runs)"
 echo "verifyResult == 1 的比例: $verify_success_percentage% ($verify_success_count/$total_runs)"
+echo "client TLS handshake computation time 平均值: ${client_handshake_time_avg_us} us (${client_handshake_time_avg_ms} ms, $client_handshake_time_count samples)"

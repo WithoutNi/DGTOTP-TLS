@@ -4,6 +4,7 @@
 #include <vector>
 #include <ctime>
 #include <chrono>
+#include <cstdint>
 
 #include <unistd.h>
 #include <arpa/inet.h>
@@ -24,12 +25,41 @@
 // Global variables to store Finished message
 static unsigned char fin_msg[BUFFER_SIZE];
 static size_t fin_msg_len = 0;
-// Helper function: get current timestamp (milliseconds)
+// get current timestamp (milliseconds)
 long getCurrentTimeMillis()
 {
     auto now = std::chrono::system_clock::now();
     auto duration = now.time_since_epoch();
     return std::chrono::duration_cast<std::chrono::milliseconds>(duration).count();
+}
+
+struct SSLIOCounter
+{
+    uint64_t read;
+    uint64_t written;
+};
+
+SSLIOCounter GetSSLIOCounter(SSL *ssl)
+{
+    BIO *rbio = SSL_get_rbio(ssl);
+    BIO *wbio = SSL_get_wbio(ssl);
+
+    return {
+        rbio ? BIO_number_read(rbio) : 0,
+        wbio ? BIO_number_written(wbio) : 0};
+}
+
+void PrintSSLIOStats(const std::string &label,
+                     const SSLIOCounter &before,
+                     const SSLIOCounter &after)
+{
+    const uint64_t sent = after.written - before.written;
+    const uint64_t received = after.read - before.read;
+
+    std::cout << "[" << label << "] communication overhead: sent "
+              << std::dec << sent << " bytes, received "
+              << std::dec << received << " bytes, total "
+              << std::dec << sent + received << " bytes" << std::endl;
 }
 
 int TagCheck(unsigned char ki[], int current_epoch_j, std::string SG, pw_CM commitment, const unsigned char *tags, size_t tag_len)
@@ -116,7 +146,7 @@ int main()
     DGTOTP dgtotp;
     DGTOTP::JoinReceipt joinReceipt;
     const int securityParameter = SECURITY_PARAMETER_BITS;
-    const int groupMemberCount = 4;
+    const int groupMemberCount = 10;
     const int verificationPeriod = 300000;
     const int passwordGenerationPeriod = 5000;
     const long endTime = sharedStartTime + EPOCH_COUNT * verificationPeriod;
@@ -278,12 +308,22 @@ int main()
     SSL_set_msg_callback_arg(verifier_ssl, NULL);
 
     // Perform TLS handshake
+    const SSLIOCounter verifier_handshake_io_before = GetSSLIOCounter(verifier_ssl);
+    const auto verifier_handshake_start = std::chrono::steady_clock::now();
+
     if (SSL_connect(verifier_ssl) <= 0)
     {
         ERR_print_errors_fp(stderr);
     }
     else
     {
+        const auto verifier_handshake_end = std::chrono::steady_clock::now();
+        const auto verifier_handshake_duration_us =
+            std::chrono::duration_cast<std::chrono::microseconds>(verifier_handshake_end - verifier_handshake_start).count();
+        const SSLIOCounter verifier_handshake_io_after = GetSSLIOCounter(verifier_ssl);
+
+        std::cout << "[TLS Handshake Stats] computation time: " << verifier_handshake_duration_us << " us" << std::endl;
+        PrintSSLIOStats("TLS Handshake Stats", verifier_handshake_io_before, verifier_handshake_io_after);
         printf("Connected to verifier with %s\n", SSL_get_cipher(verifier_ssl));
 
         // Prepare data to send
@@ -303,15 +343,15 @@ int main()
                     printf("\n");
             }
             printf("\n");
-            SG = intToHex(SGId, 2 * SG_LENGTH_BYTES);
+            SG = std::string(1, static_cast<char>(SGId));
             commitment = CMGen(password.toVector(), fin_msg, fin_msg_len);
 
             std::cout << "=== Calculation Complete ===" << std::endl;
-            std::cout << "TOTP Password: " << password.totp_password << std::endl;
+            std::cout << "TOTP Password: " << string_to_hex(password.totp_password) << std::endl;
             std::cout << "Chameleon Hash Collision: " << string_to_hex(password.collision_randomness) << std::endl;
             std::cout << "Identity Ciphertext: " << string_to_hex(password.identity_ciphertext) << std::endl;
-            std::cout << "UCM: " << commitment.UCM << std::endl;
-            std::cout << "SCM: " << commitment.SCM << std::endl;
+            std::cout << "UCM: " << string_to_hex(commitment.UCM) << std::endl;
+            std::cout << "SCM: " << string_to_hex(commitment.SCM) << std::endl;
             std::cout << "==========================" << std::endl;
         }
         catch (const std::exception &e)
@@ -324,10 +364,13 @@ int main()
         std::string message = "MSG:" + Com;
 
         // Send commitment and related information
+        const SSLIOCounter com_io_before = GetSSLIOCounter(verifier_ssl);
         int bytes_sent = SSL_write(verifier_ssl, message.c_str(), message.length());
         if (bytes_sent > 0)
         {
-            std::cout << "Successfully sent commitment data: " << message << std::endl;
+            const SSLIOCounter com_io_after = GetSSLIOCounter(verifier_ssl);
+            PrintSSLIOStats("Write com Stats", com_io_before, com_io_after);
+            std::cout << "Successfully sent commitment data: " << bytes_sent << " bytes" << std::endl;
         }
         else
         {
@@ -340,9 +383,12 @@ int main()
 
         while (keep_connection)
         {
+            const SSLIOCounter tag_io_before = GetSSLIOCounter(verifier_ssl);
             int bytes = SSL_read(verifier_ssl, buf, sizeof(buf) - 1);
             if (bytes > 0)
             {
+                const SSLIOCounter tag_io_after = GetSSLIOCounter(verifier_ssl);
+                PrintSSLIOStats("Read tag Stats", tag_io_before, tag_io_after);
                 buf[bytes] = '\0';
                 printf("Verifier response: \n");
                 for (size_t i = 0; i < bytes; i++)
@@ -365,7 +411,11 @@ int main()
                     std::string pw = "PW:" + password.totp_password +
                                      password.collision_randomness +
                                      password.identity_ciphertext;
+                    const SSLIOCounter pw_io_before = GetSSLIOCounter(verifier_ssl);
                     int pw_len = SSL_write(verifier_ssl, pw.c_str(), pw.length());
+                    const SSLIOCounter pw_io_after = GetSSLIOCounter(verifier_ssl);
+                    PrintSSLIOStats("Write pw Stats", pw_io_before, pw_io_after);
+                    std::cout << "Successfully sent password data: " << pw_len << " bytes" << std::endl;
                 }
 
                 // close the connection

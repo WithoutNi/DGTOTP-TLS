@@ -164,7 +164,8 @@ std::vector<std::string> Member::PwGen(std::vector<unsigned char *> &Ax, long ti
     free(result);
 
     // Get verification point
-    unsigned char *cache_tem = TOTP::toBytes(DGTOTP_pw[0]);
+    unsigned char *cache_tem = static_cast<unsigned char *>(malloc(32));
+    memcpy(cache_tem, DGTOTP_pw[0].data(), 32);
     for (int i = 0; i < pw_sequence + 1; i++)
     {
         unsigned char *temp = Parameter::Sha256(cache_tem, 32);

@@ -63,8 +63,8 @@ pw_CM CMGen(const std::vector<std::string> &pw,
     SHA256_Final(SCM, &sha256_scm);
 
     pw_CM commitment;
-    commitment.UCM = bytesToHex(UCM, SHA256_DIGEST_LENGTH, true);
-    commitment.SCM = bytesToHex(SCM, SHA256_DIGEST_LENGTH, true);
+    commitment.UCM = std::string(reinterpret_cast<char *>(UCM), SHA256_DIGEST_LENGTH);
+    commitment.SCM = std::string(reinterpret_cast<char *>(SCM), SHA256_DIGEST_LENGTH);
     return commitment;
 }
 

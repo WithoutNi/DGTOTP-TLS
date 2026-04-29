@@ -352,7 +352,8 @@ std::string RA::Open(const std::vector<std::string> &password, long time, Parame
     long pw_sequence = (time - verify_epoch * Δe - START_TIME) / Δs;
 
     // Get TOTP verification point (byte array)
-    unsigned char *cache_tem = TOTP::toBytes(password[0]);
+    unsigned char *cache_tem = static_cast<unsigned char *>(malloc(32));
+    memcpy(cache_tem, password[0].data(), 32);
 
     for (int i = 0; i < pw_sequence + 1; i++)
     {
@@ -361,11 +362,12 @@ std::string RA::Open(const std::vector<std::string> &password, long time, Parame
         free(temp);
     }
 
-    // TOTP verification point (string)
-    std::string vp = Member::byte2hex(cache_tem, 32);
+    // TOTP verification point
+    std::string vp(reinterpret_cast<char *>(cache_tem), 32);
+    std::string vp_hex = Member::byte2hex(cache_tem, 32);
     free(cache_tem);
 
-    unsigned char *vp_bytes = Parameter::Sha256(vp + password[2] + std::to_string(verify_epoch));
+    unsigned char *vp_bytes = Parameter::Sha256(vp_hex + password[2] + std::to_string(verify_epoch));
 
     // "ISO-8859-1" string -> byte array chameleon hash eval
     int vp_point = params.getChameHash()->eval(vp_bytes, 32,

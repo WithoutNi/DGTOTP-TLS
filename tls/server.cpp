@@ -50,6 +50,7 @@ SSL_CTX *create_context()
 void configure_context(SSL_CTX *ctx)
 {
     SSL_CTX_set_min_proto_version(ctx, TLS1_3_VERSION);
+    SSL_CTX_set_num_tickets(ctx, 0);
     if (!SSL_CTX_set_ciphersuites(ctx, "TLS_AES_128_GCM_SHA256"))
     {
         fprintf(stderr, "Failed to set ciphersuites\n");
@@ -76,11 +77,11 @@ std::vector<std::vector<unsigned char>> TagGen(
     const unsigned char *received_msg,
     size_t received_msg_len)
 {
-    const size_t commitment_len = 2 * SHA256_DIGEST_LENGTH * 2;
-    const size_t single_commitment_len = 2 * SHA256_DIGEST_LENGTH;
+    const size_t commitment_len = 2 * SHA256_DIGEST_LENGTH;
+    const size_t single_commitment_len = SHA256_DIGEST_LENGTH;
 
     // Add boundary check
-    if (received_msg_len < commitment_len + 2 * SG_LENGTH_BYTES)
+    if (received_msg_len < commitment_len + SG_LENGTH_BYTES)
     {
         throw std::runtime_error("Received message too short");
     }
@@ -89,12 +90,10 @@ std::vector<std::vector<unsigned char>> TagGen(
     std::string ucm = cm.substr(0, single_commitment_len);
     std::string scm = cm.substr(single_commitment_len, single_commitment_len);
 
-    unsigned char SG_hex[2 * SG_LENGTH_BYTES];
-    memcpy(SG_hex, received_msg + commitment_len, 2 * SG_LENGTH_BYTES);
-    std::string SG_hex_str(reinterpret_cast<char *>(SG_hex), 2 * SG_LENGTH_BYTES);
+    std::string SG(reinterpret_cast<const char *>(received_msg + commitment_len), SG_LENGTH_BYTES);
 
     Com com;
-    com.SGId = static_cast<int>(strtol(SG_hex_str.c_str(), nullptr, 16));
+    com.SGId = static_cast<unsigned char>(SG[0]);
     com.CM.UCM = ucm;
     com.CM.SCM = scm;
 
@@ -115,7 +114,7 @@ std::vector<std::vector<unsigned char>> TagGen(
     int current_epoch_j = (int)((time1 - params.getStartTime()) / params.getDeltaE());
     std::cout << "In Server, current_epoch_j=" << std::dec << current_epoch_j << std::endl;
     std::string kg_input = std::string("KG") + std::to_string(current_epoch_j);
-    std::string kt_input = std::string("KT") + std::string(reinterpret_cast<const char *>(SG_hex), 2 * SG_LENGTH_BYTES);
+    std::string kt_input = std::string("KT") + SG;
     std::string tag_input = std::string("Tag") +
                             std::string(reinterpret_cast<const char *>(received_msg), commitment_len);
 
@@ -195,7 +194,7 @@ int main()
     SSL_load_error_strings();
 
     const long sharedStartTime = getSharedProtocolStartTimeMillis();
-    const int groupMemberCount = 4;
+    const int groupMemberCount = 10;
     const int verificationPeriod = 300000;
     const int passwordGenerationPeriod = 5000;
     const long endTime = sharedStartTime + EPOCH_COUNT * verificationPeriod;
@@ -385,15 +384,19 @@ int main()
             {
                 buf[bytes] = '\0';
 
+                const size_t msg_prefix_len = strlen("MSG:");
+                const size_t pw_prefix_len = strlen("PW:");
+
                 // Check if it's MSG content
-                if (strstr(buf, "MSG:"))
+                if (bytes >= static_cast<int>(msg_prefix_len) &&
+                    memcmp(buf, "MSG:", msg_prefix_len) == 0)
                 {
                     printf("Received MSG content from verifier\n");
 
-                    const unsigned char *content = (const unsigned char *)(buf + strlen("MSG:"));
+                    const unsigned char *content = (const unsigned char *)(buf + msg_prefix_len);
 
                     // extract commitment+SG from received message (MSG:commitment+SG)
-                    size_t content_len = bytes - strlen("MSG:");
+                    size_t content_len = bytes - msg_prefix_len;
 
                     // Save commitment+SG
                     memcpy(received_msg, content, content_len);
@@ -403,7 +406,7 @@ int main()
                     printf("Original Received message (%zu bytes):\n", received_msg_len);
                     for (size_t i = 0; i < received_msg_len; i++)
                     {
-                        printf("%c", received_msg[i]);
+                        printf("%02X", received_msg[i]);
                     }
                     printf("\n");
 
@@ -437,7 +440,8 @@ int main()
                     printf("Sent compute tags to verifier\n");
                     printf("\n");
                 }
-                else if (strstr(buf, "PW:"))
+                else if (bytes >= static_cast<int>(pw_prefix_len) &&
+                         memcmp(buf, "PW:", pw_prefix_len) == 0)
                 {
                     printf("Received password pw from verifier\n");
                     std::string received_data(buf, bytes);
@@ -446,18 +450,18 @@ int main()
 
                     // Extract using known lengths (ensure correct length)
                     DGTOTP::Password password;
-                    if (pw_data.length() >= 64 + 32 + 20)
+                    if (pw_data.length() >= 32 + 32 + 20)
                     {
-                        password.totp_password = pw_data.substr(0, 64);
-                        password.collision_randomness = pw_data.substr(64, 32);
-                        password.identity_ciphertext = pw_data.substr(64 + 32, 20);
+                        password.totp_password = pw_data.substr(0, 32);
+                        password.collision_randomness = pw_data.substr(32, 32);
+                        password.identity_ciphertext = pw_data.substr(32 + 32, 20);
                     }
                     else
                     {
                         throw std::runtime_error("Received password data too short");
                     }
 
-                    std::cout << "TOTP Password: " << password.totp_password << std::endl;
+                    std::cout << "TOTP Password: " << string_to_hex(password.totp_password) << std::endl;
                     std::cout << "Chameleon Hash: " << string_to_hex(password.collision_randomness) << std::endl;
                     std::cout << "Identity Ciphertext: " << string_to_hex(password.identity_ciphertext) << std::endl;
 

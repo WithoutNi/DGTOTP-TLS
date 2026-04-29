@@ -48,9 +48,8 @@ std::string TOTP::PInit(const std::string &SK_SEED)
         memcpy(cache_byte, temp, 32);
         free(temp);
     }
-    VERIFY_POINT = byte2hex(cache_byte, 32);
-    std::string result = byte2hex(cache_byte, 32);
-    return result;
+    VERIFY_POINT = std::string(reinterpret_cast<char *>(cache_byte), 32);
+    return VERIFY_POINT;
 }
 
 std::string TOTP::PGen(const std::string &SK_SEED, long pw_sequence)
@@ -66,18 +65,21 @@ std::string TOTP::PGen(const std::string &SK_SEED, long pw_sequence)
         memcpy(cache_byte, temp, 32);
         free(temp);
     }
-    std::string result = byte2hex(cache_byte, 32);
+    std::string result(reinterpret_cast<char *>(cache_byte), 32);
     return result;
 }
 
 int TOTP::Verify(const std::string &VERIFY_POINT, const std::string &password, long pw_sequence)
 {
     int check_out = 0;
+    if (VERIFY_POINT.length() != 32 || password.length() != 32)
+    {
+        return check_out;
+    }
+
     freeCacheByte();
-    unsigned char *temp_bytes = toBytes(password);
     cache_byte = (unsigned char *)malloc(32);
-    memcpy(cache_byte, temp_bytes, 32);
-    free(temp_bytes);
+    memcpy(cache_byte, password.data(), 32);
 
     for (int i = 0; i < pw_sequence + 1; i++)
     {
@@ -86,7 +88,7 @@ int TOTP::Verify(const std::string &VERIFY_POINT, const std::string &password, l
         free(temp);
     }
 
-    if (byte2hex(cache_byte, 32) == VERIFY_POINT)
+    if (std::string(reinterpret_cast<char *>(cache_byte), 32) == VERIFY_POINT)
     {
         check_out = 1;
     }

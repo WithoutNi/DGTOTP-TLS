@@ -72,7 +72,7 @@ void testDGTOTP(int instanceCount)
 
         std::cout << "----PwGen Result:----" << std::endl;
         DGTOTP::Password password = dgtotp.PwGen(memberId, currentTime);
-        std::cout << "TOTP password: " << password.totp_password << std::endl;
+        std::cout << "TOTP password: " << string_to_hex(password.totp_password) << std::endl;
         std::cout << "Chameleon hash collision: "
                   << string_to_hex(password.collision_randomness) << std::endl;
         std::cout << "Identity ciphertext: "

@@ -17,6 +17,7 @@ Revoke..    avg.         0.48 us (    0.00 ms); median            1,571 cycles, 
 
 
 client TLS handshake computation time 平均值: 987.86 us (0.9878 ms, 100 samples)
+
 [TLS Handshake Stats] computation time: 600 us
 [TLS Handshake Stats] communication overhead: sent 279 bytes, received 1060 bytes, total 1339 bytes
 Connected to verifier with TLS_AES_128_GCM_SHA256
@@ -48,3 +49,14 @@ tag: 1d8493632b03b182a58ef7b9034e4cd8
 Verfiy tag success,sent DGTOTP password
 [Write pw Stats] communication overhead: sent 109 bytes, received 0 bytes, total 109 bytes
 Successfully sent password data: 87 bytes
+
+
+##openssl 3.0.13
+#RSA 2048
+[TLS Handshake Stats] computation time: 3627 us
+[TLS Handshake Stats] communication overhead: sent 289 bytes, received 1489 bytes, total 1778 bytes
+
+
+#RSA 3072——128 bits of security
+[TLS Handshake Stats] computation time: 3540 us
+[TLS Handshake Stats] communication overhead: sent 289 bytes, received 1873 bytes, total 2162 bytes

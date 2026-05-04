@@ -8,6 +8,10 @@
 #include <sstream>
 #include <iomanip>
 #include <chrono>
+#include <fstream>
+#include <stdexcept>
+
+#include <unistd.h>
 
 const unsigned char k_sg[16] = {
     0x44, 0x47, 0x54, 0x4F, 0x54, 0x50, 0x2D, 0x53,
@@ -241,14 +245,64 @@ std::string intToHex(int value, int width)
     return ss.str();
 }
 
-long getSharedProtocolStartTimeMillis()
+long getCurrentTimeMillis()
 {
     using namespace std::chrono;
 
-    const long sync_window_ms = 10 * 60 * 1000;
-    const long now_ms = duration_cast<milliseconds>(
-                            system_clock::now().time_since_epoch())
-                            .count();
+    return duration_cast<milliseconds>(
+               system_clock::now().time_since_epoch())
+        .count();
+}
 
-    return (now_ms / sync_window_ms) * sync_window_ms;
+std::string getProtocolStartTimeFilePath()
+{
+    char executable_path[4096];
+    const ssize_t path_len = readlink("/proc/self/exe", executable_path, sizeof(executable_path) - 1);
+    if (path_len > 0)
+    {
+        executable_path[path_len] = '\0';
+        const std::string path(executable_path);
+        const std::string::size_type separator = path.find_last_of('/');
+        if (separator != std::string::npos)
+        {
+            return path.substr(0, separator + 1) + "start_time.txt";
+        }
+    }
+
+    return "start_time.txt";
+}
+
+void writeProtocolStartTimeMillis(long startTimestamp)
+{
+    const std::string file_path = getProtocolStartTimeFilePath();
+    std::ofstream out(file_path.c_str(), std::ios::out | std::ios::trunc);
+    if (!out)
+    {
+        throw std::runtime_error("Failed to open start time file for writing: " + file_path);
+    }
+
+    out << startTimestamp << std::endl;
+    if (!out)
+    {
+        throw std::runtime_error("Failed to write start time file: " + file_path);
+    }
+}
+
+long readProtocolStartTimeMillis()
+{
+    const std::string file_path = getProtocolStartTimeFilePath();
+    std::ifstream in(file_path.c_str());
+    if (!in)
+    {
+        throw std::runtime_error("Failed to open start time file for reading: " + file_path);
+    }
+
+    long startTimestamp = 0;
+    in >> startTimestamp;
+    if (!in)
+    {
+        throw std::runtime_error("Invalid start time file: " + file_path);
+    }
+
+    return startTimestamp;
 }

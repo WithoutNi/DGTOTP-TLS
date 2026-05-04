@@ -25,13 +25,6 @@
 // Global variables to store Finished message
 static unsigned char fin_msg[BUFFER_SIZE];
 static size_t fin_msg_len = 0;
-// get current timestamp (milliseconds)
-long getCurrentTimeMillis()
-{
-    auto now = std::chrono::system_clock::now();
-    auto duration = now.time_since_epoch();
-    return std::chrono::duration_cast<std::chrono::milliseconds>(duration).count();
-}
 
 struct SSLIOCounter
 {
@@ -141,7 +134,10 @@ int main()
     SSL_CTX *ctx, *ctx1;
     int server_sockfd, verifier_sockfd;
     struct sockaddr_in server_addr, verifier_addr;
-    const long sharedStartTime = getSharedProtocolStartTimeMillis();
+    const long sharedStartTime = readProtocolStartTimeMillis();
+    std::cout << "Protocol start time read from "
+              << getProtocolStartTimeFilePath() << ": "
+              << sharedStartTime << std::endl;
     std::string memberId;
     DGTOTP dgtotp;
     DGTOTP::JoinReceipt joinReceipt;
@@ -365,10 +361,15 @@ int main()
 
         // Send commitment and related information
         const SSLIOCounter com_io_before = GetSSLIOCounter(verifier_ssl);
+        const auto send_com_start = std::chrono::steady_clock::now();
         int bytes_sent = SSL_write(verifier_ssl, message.c_str(), message.length());
         if (bytes_sent > 0)
         {
+            const auto send_com_end = std::chrono::steady_clock::now();
+            const auto send_com_duration_us =
+                std::chrono::duration_cast<std::chrono::microseconds>(send_com_end - send_com_start).count();
             const SSLIOCounter com_io_after = GetSSLIOCounter(verifier_ssl);
+            std::cout << "[Send Com] computation time: " << send_com_duration_us << " us" << std::endl;
             PrintSSLIOStats("Write com Stats", com_io_before, com_io_after);
             std::cout << "Successfully sent commitment data: " << bytes_sent << " bytes" << std::endl;
         }

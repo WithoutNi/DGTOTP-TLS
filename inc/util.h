@@ -92,9 +92,16 @@ size_t bytesToInt(const unsigned char *bytes);
 /// @return Hexadecimal string representation of the input value (lowercase, without "0x" prefix)
 std::string intToHex(int value, int width);
 
-/// Return a shared protocol start time for local demos.
-/// Both server and client should call the same helper instead of generating
-/// independent timestamps inside Parameter::init().
-long getSharedProtocolStartTimeMillis();
+/// Return the current Unix timestamp in milliseconds.
+long getCurrentTimeMillis();
+
+/// Return the start-time file path next to the running executable.
+std::string getProtocolStartTimeFilePath();
+
+/// Persist the server-generated protocol start time for local experiments.
+void writeProtocolStartTimeMillis(long startTimestamp);
+
+/// Read the server-generated protocol start time for local experiments.
+long readProtocolStartTimeMillis();
 
 #endif

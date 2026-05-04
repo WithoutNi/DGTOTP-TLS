@@ -8,6 +8,7 @@
 #include <ctime>
 #include <vector>
 
+#include <openssl/evp.h>
 #include <openssl/rand.h>
 #include <openssl/sha.h>
 
@@ -17,14 +18,7 @@
 #include "cycles.h"
 #include "util.h"
 
-#define NTESTS 100
-
-static long getCurrentTimeMillis()
-{
-    struct timespec ts;
-    clock_gettime(CLOCK_REALTIME, &ts);
-    return static_cast<long>(ts.tv_sec * 1000 + ts.tv_nsec / 1000000);
-}
+#define NTESTS 1000
 
 static int cmp_llu(const void *a, const void *b)
 {
@@ -313,12 +307,131 @@ static int CMVerify(const unsigned char *msg,
     return memcmp(com, serializedCommitment.data(), com_len) == 0 ? 1 : 0;
 }
 
+struct TLS13AeadCiphertext
+{
+    std::vector<unsigned char> tls_header; // 5 bytes, used as AAD
+    std::vector<unsigned char> ciphertext; // encrypted(payload || content_type)
+    std::vector<unsigned char> tag;        // 16 bytes
+};
+
+/**
+ * TLS 1.3-like AES-128-GCM encryption.
+ *
+ * payload:      application plaintext, e.g., Com = 69 bytes
+ * content_type: TLSInnerPlaintext content type, usually 0x17 for application_data
+ * tls_header:   5-byte TLS record header, used as AAD
+ * key:          16-byte AES-128 key
+ * iv:           12-byte GCM nonce / TLS per-record nonce
+ */
+TLS13AeadCiphertext TLS13_AES128_GCM_Enc(
+    const unsigned char *payload,
+    size_t payload_len,
+    unsigned char content_type,
+    const unsigned char tls_header[5],
+    const unsigned char key[16],
+    const unsigned char iv[12])
+{
+    TLS13AeadCiphertext out;
+    out.tls_header.assign(tls_header, tls_header + 5);
+    out.ciphertext.resize(payload_len + 1);
+    out.tag.resize(16);
+
+    std::vector<unsigned char> in(payload_len + 1);
+    if (payload_len > 0)
+    {
+        std::memcpy(in.data(), payload, payload_len);
+    }
+    in[payload_len] = content_type;
+
+    EVP_CIPHER_CTX *ctx = EVP_CIPHER_CTX_new();
+    if (ctx == nullptr)
+    {
+        throw std::runtime_error("EVP_CIPHER_CTX_new failed");
+    }
+
+    int len = 0;
+    int n = 0;
+    bool ok =
+        EVP_EncryptInit_ex(ctx, EVP_aes_128_gcm(), nullptr, nullptr, nullptr) == 1 &&
+        EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_GCM_SET_IVLEN, 12, nullptr) == 1 &&
+        EVP_EncryptInit_ex(ctx, nullptr, nullptr, key, iv) == 1 &&
+        EVP_EncryptUpdate(ctx, nullptr, &len, tls_header, 5) == 1 &&
+        EVP_EncryptUpdate(ctx, out.ciphertext.data(), &len, in.data(), static_cast<int>(in.size())) == 1;
+
+    n = len;
+    ok = ok &&
+         EVP_EncryptFinal_ex(ctx, out.ciphertext.data() + n, &len) == 1 &&
+         EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_GCM_GET_TAG, 16, out.tag.data()) == 1;
+    n += len;
+
+    EVP_CIPHER_CTX_free(ctx);
+    if (!ok)
+    {
+        throw std::runtime_error("AES-128-GCM encryption failed");
+    }
+
+    out.ciphertext.resize(n);
+    return out;
+}
+
+/**
+ * TLS 1.3 AES-128-GCM decryption.
+ *
+ * Returns the original payload, excluding the final TLS content_type byte.
+ */
+std::vector<unsigned char> TLS13_AES128_GCM_Dec(
+    const unsigned char *ciphertext,
+    size_t ciphertext_len,
+    const unsigned char tag[16],
+    const unsigned char tls_header[5],
+    const unsigned char key[16],
+    const unsigned char iv[12],
+    unsigned char expected_content_type = 0x17)
+{
+    std::vector<unsigned char> out(ciphertext_len);
+
+    EVP_CIPHER_CTX *ctx = EVP_CIPHER_CTX_new();
+    if (ctx == nullptr)
+    {
+        throw std::runtime_error("EVP_CIPHER_CTX_new failed");
+    }
+
+    int len = 0;
+    int n = 0;
+    bool ok =
+        EVP_DecryptInit_ex(ctx, EVP_aes_128_gcm(), nullptr, nullptr, nullptr) == 1 &&
+        EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_GCM_SET_IVLEN, 12, nullptr) == 1 &&
+        EVP_DecryptInit_ex(ctx, nullptr, nullptr, key, iv) == 1 &&
+        EVP_DecryptUpdate(ctx, nullptr, &len, tls_header, 5) == 1 &&
+        EVP_DecryptUpdate(ctx, out.data(), &len, ciphertext, static_cast<int>(ciphertext_len)) == 1 &&
+        EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_GCM_SET_TAG, 16, const_cast<unsigned char *>(tag)) == 1;
+
+    n = len;
+    ok = ok && EVP_DecryptFinal_ex(ctx, out.data() + n, &len) == 1;
+    n += len;
+
+    EVP_CIPHER_CTX_free(ctx);
+    if (!ok || n < 1)
+    {
+        throw std::runtime_error("AES-128-GCM decryption or tag verification failed");
+    }
+
+    out.resize(n);
+    if (out.back() != expected_content_type)
+    {
+        throw std::runtime_error("Unexpected TLS content type");
+    }
+
+    out.pop_back();
+    return out;
+}
+
 int main()
 {
     setbuf(stdout, NULL);
     init_cpucycles();
 
-    const long sharedStartTime = getSharedProtocolStartTimeMillis();
+    const long sharedStartTime = getCurrentTimeMillis();
     const int securityParameter = SECURITY_PARAMETER_BITS;
     const int subgroupCount = SG_NUM;
     const int groupMemberCount = 64;
@@ -333,6 +446,18 @@ int main()
     unsigned char prf_out[KEY_LENGTH_BYTES] = {0};
     RAND_bytes(prf_key, KEY_LENGTH_BYTES);
     const std::string prf_message = "benchmark message";
+
+    const size_t tls13_payload_len = 69;
+    const unsigned char tls13_content_type = 0x17;
+    const unsigned char tls13_header[5] = {
+        0x17, 0x03, 0x03, 0x00,
+        static_cast<unsigned char>(tls13_payload_len + 1 + 16)};
+    unsigned char tls13_key[16] = {0};
+    unsigned char tls13_iv[12] = {0};
+    std::vector<unsigned char> tls13_payload(tls13_payload_len);
+    RAND_bytes(tls13_key, sizeof(tls13_key));
+    RAND_bytes(tls13_iv, sizeof(tls13_iv));
+    RAND_bytes(tls13_payload.data(), static_cast<int>(tls13_payload.size()));
 
     unsigned long long t[NTESTS + 1];
     struct timespec start, stop;
@@ -356,6 +481,29 @@ int main()
     fprintf(fp, "k = %ld, m = %ld, U = %d, T_s = %ld,  T_e = %ld, Δe = %d, Δs = %d\n",
             SECURITY_PARAMETER_BITS, SG_NUM, groupMemberCount,
             sharedStartTime, endTime, verificationPeriod, passwordGenerationPeriod);
+
+    TLS13AeadCiphertext tls13_ciphertext;
+    std::vector<unsigned char> tls13_plaintext;
+
+    printf("TLS_AES_128_GCM_SHA256 AEAD params: TLS header = 5 bytes, content type = 1 byte, GCM tag = 16 bytes, overhead = 22 bytes, payload = %zu bytes\n",
+           tls13_payload_len);
+    fprintf(fp, "TLS_AES_128_GCM_SHA256 AEAD params: TLS header = 5 bytes, content type = 1 byte, GCM tag = 16 bytes, overhead = 22 bytes, payload = %zu bytes\n",
+            tls13_payload_len);
+
+    MEASURE("AEADEnc..", 1, {
+        tls13_ciphertext = TLS13_AES128_GCM_Enc(
+            tls13_payload.data(), tls13_payload.size(), tls13_content_type,
+            tls13_header, tls13_key, tls13_iv);
+    });
+    save_result(fp, "AEADEnc", t, NTESTS);
+
+    MEASURE("AEADDec..", 1, {
+        tls13_plaintext = TLS13_AES128_GCM_Dec(
+            tls13_ciphertext.ciphertext.data(), tls13_ciphertext.ciphertext.size(),
+            tls13_ciphertext.tag.data(), tls13_header, tls13_key, tls13_iv,
+            tls13_content_type);
+    });
+    save_result(fp, "AEADDec", t, NTESTS);
 
     std::vector<DGTOTP> dgtotpVec(SG_NUM);
     std::vector<unsigned char *> setupSkSke(SG_NUM, nullptr);

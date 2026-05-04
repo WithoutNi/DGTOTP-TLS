@@ -26,14 +26,6 @@
 static unsigned char received_msg[BUFFER_SIZE];
 static size_t received_msg_len = 0;
 
-// Helper function: get current timestamp (milliseconds)
-long getCurrentTimeMillis()
-{
-    auto now = std::chrono::system_clock::now();
-    auto duration = now.time_since_epoch();
-    return std::chrono::duration_cast<std::chrono::milliseconds>(duration).count();
-}
-
 SSL_CTX *create_context()
 {
     const SSL_METHOD *method = TLS_server_method();
@@ -193,7 +185,11 @@ int main()
     OpenSSL_add_all_algorithms();
     SSL_load_error_strings();
 
-    const long sharedStartTime = getSharedProtocolStartTimeMillis();
+    const long sharedStartTime = getCurrentTimeMillis();
+    writeProtocolStartTimeMillis(sharedStartTime);
+    std::cout << "Protocol start time written to "
+              << getProtocolStartTimeFilePath() << ": "
+              << sharedStartTime << std::endl;
     const int groupMemberCount = 10;
     const int verificationPeriod = 300000;
     const int passwordGenerationPeriod = 5000;

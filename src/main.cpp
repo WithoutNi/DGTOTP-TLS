@@ -1,4 +1,3 @@
-#include <chrono>
 #include <ctime>
 #include <iostream>
 #include <string>
@@ -6,13 +5,6 @@
 
 #include "DGTOTP.h"
 #include "util.h"
-
-long getCurrentTimeMillis()
-{
-    auto now = std::chrono::system_clock::now();
-    auto duration = now.time_since_epoch();
-    return std::chrono::duration_cast<std::chrono::milliseconds>(duration).count();
-}
 
 void testDGTOTP(int instanceCount)
 {
@@ -34,7 +26,7 @@ void testDGTOTP(int instanceCount)
     std::vector<DGTOTP> dgtotpVec(instanceCount);
     std::vector<std::string> memberIdVec;
     memberIdVec.reserve(instanceCount);
-    const long sharedStartTime = getSharedProtocolStartTimeMillis();
+    const long sharedStartTime = getCurrentTimeMillis();
     const long endTime = sharedStartTime + EPOCH_COUNT * verificationPeriod;
 
     for (int idx = 0; idx < instanceCount; idx++)

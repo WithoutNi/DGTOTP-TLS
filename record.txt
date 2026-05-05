@@ -1,22 +1,28 @@
 DGTOTP-TLS benchmark
-Running 100 iterations.
-Parameters: k = 128, m = 256, U = 64, T_s = 1777470600000,  T_e = 1777471800000, Δe = 300000, Δs = 5000
-Setup..     avg.   4956772.45 us ( 4956.77 ms); median   14,650,871,610 cycles,     1x:   14,650,871,610 cycles
-prf1..      avg.         0.60 us (    0.00 ms); median            1,792 cycles,     1x:            1,792 cycles
-SGIdGen..   avg.         0.60 us (    0.00 ms); median            1,822 cycles,     1x:            1,822 cycles
-PInit..     avg.         3.72 us (    0.00 ms); median            8,283 cycles,     1x:            8,283 cycles
-Join..      avg.         1.26 us (    0.00 ms); median            3,531 cycles,     1x:            3,531 cycles
-PwGen..     avg.       110.14 us (    0.11 ms); median          333,145 cycles,     1x:          333,145 cycles
-CMGen..     avg.         0.67 us (    0.00 ms); median            1,849 cycles,     1x:            1,849 cycles
-TagGen..    avg.         5.00 us (    0.00 ms); median           12,316 cycles,     1x:           12,316 cycles
-TagCheck..  avg.         2.11 us (    0.00 ms); median            6,229 cycles,     1x:            6,229 cycles
-CMVerify..  avg.         0.84 us (    0.00 ms); median            2,496 cycles,     1x:            2,496 cycles
-PwVerify..  avg.      4895.07 us (    4.90 ms); median       15,086,723 cycles,     1x:       15,086,723 cycles
-Open..      avg.      4756.57 us (    4.76 ms); median       14,279,941 cycles,     1x:       14,279,941 cycles
-Revoke..    avg.         0.48 us (    0.00 ms); median            1,571 cycles,     1x:            1,571 cycles
+Running 1000 iterations.
+Parameters: k = 128, m = 256, U = 64, T_s = 1777879474429,  T_e = 1777880674429, Δe = 300000, Δs = 5000
+TLS_AES_128_GCM_SHA256 AEAD params: TLS header = 5 bytes, content type = 1 byte, GCM tag = 16 bytes, overhead = 22 bytes, payload = 69 bytes
+AEADEnc..   avg.         0.77 us (    0.00 ms); median            2,332 cycles,     1x:            2,332 cycles
+AEADDec..   avg.         0.38 us (    0.00 ms); median            1,205 cycles,     1x:            1,205 cycles
+Setup..     avg.   5045491.78 us ( 5045.49 ms); median   15,644,484,918 cycles,     1x:   15,644,484,918 cycles
+prf1..      avg.         0.82 us (    0.00 ms); median            1,727 cycles,     1x:            1,727 cycles
+SGIdGen..   avg.         0.58 us (    0.00 ms); median            1,799 cycles,     1x:            1,799 cycles
+PInit..     avg.         5.05 us (    0.01 ms); median            6,838 cycles,     1x:            6,838 cycles
+Join..      avg.         0.93 us (    0.00 ms); median            1,579 cycles,     1x:            1,579 cycles
+PwGen..     avg.        57.02 us (    0.06 ms); median           92,256 cycles,     1x:           92,256 cycles
+CMGen..     avg.         0.54 us (    0.00 ms); median            1,423 cycles,     1x:            1,423 cycles
+TagGen..    avg.         7.63 us (    0.01 ms); median            4,132 cycles,     1x:            4,132 cycles
+TagCheck..  avg.         1.89 us (    0.00 ms); median            5,751 cycles,     1x:            5,751 cycles
+CMVerify..  avg.         0.77 us (    0.00 ms); median            2,366 cycles,     1x:            2,366 cycles
+PwVerify..  avg.      4360.12 us (    4.36 ms); median       13,657,944 cycles,     1x:       13,657,944 cycles
+Open..      avg.      4235.22 us (    4.24 ms); median       13,250,263 cycles,     1x:       13,250,263 cycles
+Revoke..    avg.         0.11 us (    0.00 ms); median              136 cycles,     1x:              136 cycles
 
-
-client TLS handshake computation time 平均值: 987.86 us (0.9878 ms, 100 samples)
+TLS_AES_128_GCM_SHA256  RSA3072
+TLS handshake computation time 平均值: 1375.84 us (1.3758 ms, 100 samples)
+TLS handshake communication overhead: sent 279 bytes, received 1873 bytes, total 2152 bytes
+TLS Enc computation time 平均值:0.77 us (    0.00 ms)
+TLS Dec computation time 平均值:0.38 us (    0.00 ms)
 
 [TLS Handshake Stats] computation time: 600 us
 [TLS Handshake Stats] communication overhead: sent 279 bytes, received 1060 bytes, total 1339 bytes
@@ -49,6 +55,22 @@ tag: 1d8493632b03b182a58ef7b9034e4cd8
 Verfiy tag success,sent DGTOTP password
 [Write pw Stats] communication overhead: sent 109 bytes, received 0 bytes, total 109 bytes
 Successfully sent password data: 87 bytes
+
+
+##openssl 1.1.1
+#TLS1.3 aes-128-gcm (AEAD)
+block size=16bytes 0.0000177 ms 0.0177 μs
+block size=64bytes 0.0000245 ms 0.0245 μs
+block size=256bytes 0.0000486 ms 0.0486 μs
+
+#RSA 2048
+[TLS Handshake Stats] computation time: 1809 us
+[TLS Handshake Stats] communication overhead: sent 279 bytes, received 1489 bytes, total 1768 bytes
+
+#RSA 3072——128 bits of security
+client TLS handshake computation time 平均值: 1375.84 us (1.3758 ms, 100 samples)
+[TLS Handshake Stats] computation time: 2990 us
+[TLS Handshake Stats] communication overhead: sent 279 bytes, received 1873 bytes, total 2152 bytes
 
 
 ##openssl 3.0.13

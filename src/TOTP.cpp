@@ -28,8 +28,6 @@ void TOTP::Setup(Parameter &params)
     // Initialize member variables using parameter instance
     k = params.getK();
     N = params.getN();
-    Δs = params.getDeltaS();
-    Δe = params.getDeltaE();
     VERIFY_POINT = "";
     SK_SEED = "";
     digest = nullptr;
@@ -106,16 +104,6 @@ int TOTP::getK() const
 int TOTP::getN() const
 {
     return N;
-}
-
-long TOTP::getDeltaS() const
-{
-    return Δs;
-}
-
-long TOTP::getDeltaE() const
-{
-    return Δe;
 }
 
 std::string TOTP::getVerifyPoint() const

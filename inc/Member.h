@@ -28,7 +28,8 @@ public:
     /// Get password seed for current verification period
     /// @param[in] SECRET_KEY Encryption key
     /// @param[in] time Current time
-    unsigned char *GetSD(EVP_CIPHER_CTX *SECRET_KEY, long time);
+    /// @param[in] params Parameter instance
+    unsigned char *GetSD(EVP_CIPHER_CTX *SECRET_KEY, long time, Parameter &params);
 
     /// Generate passwords
     /// @param[in] Ax Parameters
@@ -63,14 +64,6 @@ public:
     /// @return End time
     long getEndTime() const;
 
-    /// Get password generation period
-    /// @return Password generation period
-    int getDeltaS() const;
-
-    /// Get verification period
-    /// @return Verification period
-    int getDeltaE() const;
-
     /// Get ID transformation identity bytes
     /// @return Alpha bytes
     unsigned char *getAlpha() const;
@@ -102,12 +95,6 @@ private:
 
     /// End time (timestamp)
     long END_TIME;
-
-    /// Password generation period (delta s)
-    int Δs;
-
-    /// Verification period (delta e)
-    int Δe;
 
     /// Secret seed string sd
     std::string SECRET_SEED;

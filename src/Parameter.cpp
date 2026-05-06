@@ -7,7 +7,7 @@
 
 // Constructor
 Parameter::Parameter()
-    : U(0), k(128), N(60), E(0), START_TIME(0), END_TIME(0), Δe(300000), Δs(5000),
+    : U(0), k(128), N(60), E(0), START_TIME(0), END_TIME(0), delta_e(300000), delta_s(5000),
       chame_hash(nullptr), digest(nullptr), G(""), AesCipher(nullptr), nonce(nullptr),
       proof_len(0), gpk("")
 {
@@ -44,7 +44,7 @@ void Parameter::init(const std::string &groupId, long startTimestamp)
 
     // Use the caller-provided shared start time
     START_TIME = startTimestamp;
-    END_TIME = START_TIME + E * Δe;
+    END_TIME = START_TIME + E * delta_e;
     N = 60;
 
     // Initialize SHA256 context
@@ -204,12 +204,12 @@ void Parameter::setEndTime(long endTimestamp)
 
 void Parameter::setDeltaE(int verificationPeriod)
 {
-    Δe = verificationPeriod;
+    delta_e = verificationPeriod;
 }
 
 void Parameter::setDeltaS(int generationPeriod)
 {
-    Δs = generationPeriod;
+    delta_s = generationPeriod;
 }
 
 void Parameter::setChameHash(ChameleonHash *chameleon)
@@ -327,12 +327,12 @@ long Parameter::getEndTime() const
 
 int Parameter::getDeltaE() const
 {
-    return Δe;
+    return delta_e;
 }
 
 int Parameter::getDeltaS() const
 {
-    return Δs;
+    return delta_s;
 }
 
 ChameleonHash *Parameter::getChameHash() const

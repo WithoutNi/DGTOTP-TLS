@@ -248,11 +248,11 @@ private:
     /// End time (timestamp)
     long END_TIME;
 
-    /// Verification period (Δe)
-    int Δe;
+    /// Verification period (delta_e)
+    int delta_e;
 
-    /// Password generation period (Δs)
-    int Δs;
+    /// Password generation period (delta_s)
+    int delta_s;
 
     /// Chameleon hash instance pointer
     ChameleonHash *chame_hash;

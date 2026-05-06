@@ -32,10 +32,8 @@ void RA::RASetup(int security_parameter, std::string group_name, int group_membe
     U = group_member_count;
     START_TIME = start_time;
     END_TIME = end_time;
-    Δe = verification_period;
-    Δs = password_generation_period;
-    E = (END_TIME - START_TIME) / Δe;
-    N = Δe / Δs;
+    E = (END_TIME - START_TIME) / verification_period;
+    N = verification_period / password_generation_period;
 
     // Initialize data structures
     SMT.resize(E);
@@ -185,7 +183,7 @@ std::vector<int> RA::Permutation(unsigned int random_seed)
 
 void RA::GMUpdate(long time, Parameter &params)
 {
-    int instance_index = (int)((time - START_TIME) / Δe);
+    int instance_index = (int)((time - START_TIME) / params.getDeltaE());
 
     // V
     std::vector<int> V(U);
@@ -341,7 +339,7 @@ std::string RA::Open(const std::vector<std::string> &password, long time, Parame
         }
     }
 
-    verify_epoch = (int)((time - START_TIME) / Δe);
+    verify_epoch = (int)((time - START_TIME) / params.getDeltaE());
     current_verify_epoch = (int)((std::time(nullptr) * 1000 - params.getStartTime()) / params.getDeltaE());
 
     if (verify_epoch != current_verify_epoch)
@@ -349,7 +347,7 @@ std::string RA::Open(const std::vector<std::string> &password, long time, Parame
         return "";
     }
 
-    long pw_sequence = (time - verify_epoch * Δe - START_TIME) / Δs;
+    long pw_sequence = (time - verify_epoch * params.getDeltaE() - START_TIME) / params.getDeltaS();
 
     // Get TOTP verification point (byte array)
     unsigned char *cache_tem = static_cast<unsigned char *>(malloc(32));

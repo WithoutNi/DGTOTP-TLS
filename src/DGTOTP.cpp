@@ -184,7 +184,7 @@ std::string DGTOTP::GetSD(const std::string &member_id, long time)
     ensureSetup();
     MemberMaterials &memberMaterials = requireMaterials(member_id);
 
-    unsigned char *sd = memberMaterials.member.GetSD(nullptr, time);
+    unsigned char *sd = memberMaterials.member.GetSD(nullptr, time, params);
     std::string secret_seed = Member::byte2hex(sd, 32);
     free(sd);
     return secret_seed;

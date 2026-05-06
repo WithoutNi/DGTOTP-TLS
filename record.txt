@@ -1,6 +1,6 @@
 DGTOTP-TLS benchmark
 Running 1000 iterations.
-Parameters: k = 128, m = 256, U = 64, T_s = 1777879474429,  T_e = 1777880674429, Δe = 300000, Δs = 5000
+Parameters: k = 128, m = 256, U = 64, T_s = 1777879474429,  T_e = 1777880674429, delta_e = 300000, delta_s = 5000
 TLS_AES_128_GCM_SHA256 AEAD params: TLS header = 5 bytes, content type = 1 byte, GCM tag = 16 bytes, overhead = 22 bytes, payload = 69 bytes
 AEADEnc..   avg.         0.77 us (    0.00 ms); median            2,332 cycles,     1x:            2,332 cycles
 AEADDec..   avg.         0.38 us (    0.00 ms); median            1,205 cycles,     1x:            1,205 cycles

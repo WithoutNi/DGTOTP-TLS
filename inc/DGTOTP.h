@@ -94,8 +94,8 @@ public:
     /// @param[in] group_member_count         Number of group members
     /// @param[in] start_time                 Start time (timestamp)
     /// @param[in] end_time                   End time (timestamp)
-    /// @param[in] verification_period        Verification period (Δe)
-    /// @param[in] password_generation_period Password generation period (Δs)
+    /// @param[in] verification_period        Verification period (delta_e)
+    /// @param[in] password_generation_period Password generation period (delta_s)
     void RASetup(int security_parameter, const std::string &group_name, int group_member_count,
                  long start_time, long end_time, int verification_period,
                  int password_generation_period);
@@ -106,8 +106,8 @@ public:
     /// @param[in] group_member_count         Number of group members
     /// @param[in] start_time                 Start time (timestamp)
     /// @param[in] end_time                   End time (timestamp)
-    /// @param[in] verification_period        Verification period (Δe)
-    /// @param[in] password_generation_period Password generation period (Δs)
+    /// @param[in] verification_period        Verification period (delta_e)
+    /// @param[in] password_generation_period Password generation period (delta_s)
     void ImportParameters(int security_parameter, const std::string &group_name, int group_member_count,
                           long start_time, long end_time, int verification_period,
                           int password_generation_period);

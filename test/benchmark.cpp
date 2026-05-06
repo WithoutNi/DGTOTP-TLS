@@ -475,10 +475,10 @@ int main()
     printf("Running %d iterations.\n", NTESTS);
     fprintf(fp, "DGTOTP benchmark\n");
     fprintf(fp, "iterations=%d\n", NTESTS);
-    printf("Parameters: k = %ld, m = %ld, U = %d, T_s = %ld,  T_e = %ld, Δe = %d, Δs = %d\n",
+    printf("Parameters: k = %ld, m = %ld, U = %d, T_s = %ld,  T_e = %ld, delta_e = %d, delta_s = %d\n",
            SECURITY_PARAMETER_BITS, SG_NUM, groupMemberCount,
            sharedStartTime, endTime, verificationPeriod, passwordGenerationPeriod);
-    fprintf(fp, "k = %ld, m = %ld, U = %d, T_s = %ld,  T_e = %ld, Δe = %d, Δs = %d\n",
+    fprintf(fp, "k = %ld, m = %ld, U = %d, T_s = %ld,  T_e = %ld, delta_e = %d, delta_s = %d\n",
             SECURITY_PARAMETER_BITS, SG_NUM, groupMemberCount,
             sharedStartTime, endTime, verificationPeriod, passwordGenerationPeriod);
 

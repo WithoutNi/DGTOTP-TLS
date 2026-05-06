@@ -56,14 +56,6 @@ public:
     /// @return Number of passwords
     int getN() const;
 
-    /// Get TOTP instance start time
-    /// @return Start time
-    long getDeltaS() const;
-
-    /// Get TOTP instance end time
-    /// @return End time
-    long getDeltaE() const;
-
     /// Get verification point
     /// @return Verification point
     std::string getVerifyPoint() const;
@@ -119,12 +111,6 @@ private:
 
     /// Number of passwords in TOTP instance
     int N;
-
-    /// TOTP instance start time
-    long Δs;
-
-    /// TOTP instance end time
-    long Δe;
 
     /// Verification point
     std::string VERIFY_POINT;

@@ -24,8 +24,8 @@ public:
     /// @param[in] group_member_count        Number of group members
     /// @param[in] start_time                Start time (timestamp)
     /// @param[in] end_time                  End time (timestamp)
-    /// @param[in] verification_period       Verification period (Δe)
-    /// @param[in] password_generation_period Password generation period (Δs)
+    /// @param[in] verification_period       Verification period (delta_e)
+    /// @param[in] password_generation_period Password generation period (delta_s)
     void RASetup(int security_parameter, std::string group_name, int group_member_count, long start_time, long end_time,
                  int verification_period, int password_generation_period);
 
@@ -115,12 +115,6 @@ private:
 
     /// End time (timestamp)
     long END_TIME = 0;
-
-    /// Verification period (Δe)
-    int Δe = 0;
-
-    /// Password generation period (Δs)
-    int Δs = 0;
 
     /// Permutation key bytes
     unsigned char *KEY_PERMUTATION = nullptr;

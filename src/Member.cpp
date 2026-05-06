@@ -14,7 +14,7 @@
 
 // Constructor - initialize all member variables
 Member::Member()
-    : alpha(nullptr), k(0), N(0), E(0), START_TIME(0), END_TIME(0), Δs(0), Δe(0),
+    : alpha(nullptr), k(0), N(0), E(0), START_TIME(0), END_TIME(0),
       cache_byte(nullptr), chame_hash(nullptr), SECRET_KEY(nullptr), ks(nullptr),
       ks_cipher(nullptr), key_cipher(nullptr)
 {
@@ -69,8 +69,6 @@ void Member::PInit(const std::string &ID, Parameter &params)
     E = params.getE();
     N = params.getN();
     k = params.getK();
-    Δs = params.getDeltaS();
-    Δe = params.getDeltaE();
 
     // Generate key
     SECRET_KEY = EVP_CIPHER_CTX_new();
@@ -87,9 +85,9 @@ void Member::PInit(const std::string &ID, Parameter &params)
     ID_MENBER = ID;
 }
 
-unsigned char *Member::GetSD(EVP_CIPHER_CTX *SECRET_KEY, long time)
+unsigned char *Member::GetSD(EVP_CIPHER_CTX *SECRET_KEY, long time, Parameter &params)
 {
-    int chain_index = (int)((time - START_TIME) / Δe);
+    int chain_index = (int)((time - START_TIME) / params.getDeltaE());
 
     // Generate password seed
     std::string input = ID_MENBER + std::to_string(chain_index);
@@ -108,7 +106,7 @@ std::vector<std::string> Member::PwGen(std::vector<unsigned char *> &Ax, long ti
 {
     // DGTOTP passwords
     std::vector<std::string> DGTOTP_pw(3);
-    int instance_index = (int)((time - START_TIME) / Δe);
+    int instance_index = (int)((time - START_TIME) / params.getDeltaE());
     // std::cout << "In Member, current_verify_epoch=" << std::dec << instance_index << std::endl;
 
     if (!SECRET_SEED.empty())
@@ -117,14 +115,14 @@ std::vector<std::string> Member::PwGen(std::vector<unsigned char *> &Ax, long ti
     }
     else
     {
-        unsigned char *sd = GetSD(SECRET_KEY, time);
+        unsigned char *sd = GetSD(SECRET_KEY, time, params);
         cache_string = byte2hex(sd, 32);
         SECRET_SEED = cache_string;
         free(sd);
     }
 
     // Password index z
-    int pw_sequence = (time - instance_index * Δe - START_TIME) / Δs;
+    int pw_sequence = (time - instance_index * params.getDeltaE() - START_TIME) / params.getDeltaS();
     // std::cout << "In Member, pw_sequence=" << std::dec << pw_sequence << std::endl;
 
     // TOTP password
@@ -259,16 +257,6 @@ long Member::getStartTime() const
 long Member::getEndTime() const
 {
     return END_TIME;
-}
-
-int Member::getDeltaS() const
-{
-    return Δs;
-}
-
-int Member::getDeltaE() const
-{
-    return Δe;
 }
 
 unsigned char *Member::getAlpha() const

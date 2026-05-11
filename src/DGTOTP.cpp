@@ -206,7 +206,6 @@ DGTOTP::Password DGTOTP::PwGen(const std::string &member_id, long time)
 int DGTOTP::Verify(const Password &password, long time)
 {
     ensureSetup();
-    refreshPublishedState(time);
     return verifier.Verify(password.toVector(), time, params);
 }
 
@@ -219,7 +218,6 @@ int DGTOTP::Revoke(const std::string &member_id)
 std::string DGTOTP::Open(const Password &password, long time)
 {
     ensureSetup();
-    refreshPublishedState(time);
     return ra.Open(password.toVector(), time, params);
 }
 

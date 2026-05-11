@@ -463,6 +463,7 @@ int main()
 
                     // Verify DGTOTP password using a fresh timestamp and current epoch metadata.
                     const long verifyTime = getCurrentTimeMillis();
+                    dgtotpVec[selectedSGId].refreshPublishedState(verifyTime);
                     int verifyResult = dgtotpVec[selectedSGId].Verify(password, verifyTime);
                     std::cout << "Verify result for the correct password and verify epoch: " << (verifyResult == 1 ? "success" : "failure") << std::endl;
                     std::cout << std::endl;

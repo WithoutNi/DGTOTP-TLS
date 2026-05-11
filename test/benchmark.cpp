@@ -621,6 +621,11 @@ int main()
     });
     save_result(fp, "CMVerify", t, NTESTS);
 
+    MEASURE("GMUpdate..", 1, {
+        dgtotpVec[memberSGIds[i]].refreshPublishedState(protocolTime);
+    });
+    save_result(fp, "GMUpdate", t, NTESTS);
+
     std::vector<int> pwVerifyResults(NTESTS, 0);
 
     MEASURE("PwVerify..", 1, {

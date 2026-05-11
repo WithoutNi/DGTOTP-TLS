@@ -75,9 +75,10 @@ if [ -f "server.key" ] && [ -f "server.crt" ]; then
     fi
 fi
 
-# 生成私钥
-openssl genpkey -algorithm RSA -out server.key -pkeyopt rsa_keygen_bits:3072
-# 生成自签名证书
+# 生成 ECDSA 私钥，使用 secp256r1 / prime256v1 曲线
+openssl ecparam -name prime256v1 -genkey -noout -out server.key
+
+# 生成自签名 ECDSA 证书
 openssl req -new -x509 -key server.key -out server.crt -days 365 \
     -subj "/C=CN/ST=Beijing/L=Beijing/O=DGTOTP-TLS/CN=localhost" \
     -addext "subjectAltName = DNS:localhost, IP:127.0.0.1"

@@ -88,7 +88,7 @@ public:
     DGTOTP(const DGTOTP &) = delete;
     DGTOTP &operator=(const DGTOTP &) = delete;
 
-    /// Paper syntax: RASetup
+    /// syntax: RASetup
     /// @param[in] security_parameter         Security parameter
     /// @param[in] group_name                 Group instance identifier
     /// @param[in] group_member_count         Number of group members
@@ -112,11 +112,11 @@ public:
                           long start_time, long end_time, int verification_period,
                           int password_generation_period);
 
-    /// Paper syntax: PInit
+    /// syntax: PInit
     /// @param[in] member_id Member identifier
     void PInit(const std::string &member_id);
 
-    /// Paper syntax: Join
+    /// syntax: Join
     /// @param[in] member_id Member identifier
     /// @param[in] time      Current time
     void Join(const std::string &member_id, long time);
@@ -132,30 +132,34 @@ public:
     /// @param[in] receipt   Serialized join receipt
     void ImportJoinReceipt(const std::string &member_id, const JoinReceipt &receipt);
 
-    /// Paper syntax: GetSD
+    /// syntax: GetSD
     /// @param[in] member_id Member identifier
     /// @param[in] time      Current time
     /// @return Secret seed as a hexadecimal string
     std::string GetSD(const std::string &member_id, long time);
 
-    /// Paper syntax: PwGen
+    /// syntax: PwGen
     /// @param[in] member_id Member identifier
     /// @param[in] time      Current time
     /// @return Generated DGTOTP password tuple
     Password PwGen(const std::string &member_id, long time);
 
-    /// Paper syntax: Verify
+    /// Refresh published verifier-side state
+    /// @param[in] time Current time
+    void refreshPublishedState(long time);
+
+    /// syntax: Verify
     /// @param[in] password Password tuple
     /// @param[in] time     Current time
     /// @return Verification result (1 success, 0 failure)
     int Verify(const Password &password, long time);
 
-    /// Paper syntax: Revoke
+    /// syntax: Revoke
     /// @param[in] member_id Member identifier
     /// @return 1 if successful, 0 if member not found
     int Revoke(const std::string &member_id);
 
-    /// Paper syntax: Open
+    /// syntax: Open
     /// @param[in] password Password tuple
     /// @param[in] time     Current time
     /// @return Member ID if successful, empty string otherwise
@@ -177,10 +181,6 @@ private:
 
     /// Ensure RASetup has been called
     void ensureSetup() const;
-
-    /// Refresh published verifier-side state
-    /// @param[in] time Current time
-    void refreshPublishedState(long time);
 
     /// Clear cached state and release owned resources
     void clearState();

@@ -71,6 +71,10 @@ void testDGTOTP(int instanceCount)
                   << string_to_hex(password.identity_ciphertext) << std::endl;
         std::cout << std::endl;
 
+        std::cout << "----GM Update:----" << std::endl;
+        dgtotp.refreshPublishedState(currentTime);
+        std::cout << std::endl;
+
         std::cout << "----Verify Result:----" << std::endl;
         int verifyResult = dgtotp.Verify(password, currentTime);
         std::cout << "Verify result for the correct password and verify epoch: "

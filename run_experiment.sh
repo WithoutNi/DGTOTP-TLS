@@ -32,6 +32,8 @@ tag_ge_2_count=0
 verify_success_count=0
 client_handshake_time_count=0
 client_handshake_time_total_us=0
+client_handshake_cycles_count=0
+client_handshake_cycles_values=()
 
 # 临时文件用于存储输出
 temp_output=$(mktemp)
@@ -137,6 +139,17 @@ for ((i=1; i<=RUN_COUNT; i++)); do
         echo "  未找到client TLS handshake computation time" >> "$REPORT_FILE"
         print_client_output "$client_log" "未找到client TLS handshake computation time"
     fi
+
+    # 从client输出中提取TLS handshake CPU cycles
+    client_handshake_cycles=$(awk '/\[TLS Handshake Stats\] cycles:/ {print $NF; exit}' "$client_log")
+    if [[ -n "$client_handshake_cycles" && "$client_handshake_cycles" =~ ^[0-9]+$ ]]; then
+        client_handshake_cycles_values+=("$client_handshake_cycles")
+        client_handshake_cycles_count=$((client_handshake_cycles_count + 1))
+        echo "  client TLS handshake cycles: ${client_handshake_cycles}" >> "$REPORT_FILE"
+    else
+        echo "  未找到client TLS handshake cycles" >> "$REPORT_FILE"
+        print_client_output "$client_log" "未找到client TLS handshake cycles"
+    fi
     
     # 从server输出中提取tag_collection.size()信息
     if grep -q "match tag number:" "$temp_output"; then
@@ -200,6 +213,7 @@ tag_ge_2_percentage=0
 verify_success_percentage=0
 client_handshake_time_avg_us=0
 client_handshake_time_avg_ms=0
+client_handshake_cycles_median=0
 
 if [[ $total_runs -gt 0 ]]; then
     tag_ge_2_percentage=$(echo "scale=2; $tag_ge_2_count * 100 / $total_runs" | bc)
@@ -209,6 +223,17 @@ fi
 if [[ $client_handshake_time_count -gt 0 ]]; then
     client_handshake_time_avg_us=$(echo "scale=2; $client_handshake_time_total_us / $client_handshake_time_count" | bc)
     client_handshake_time_avg_ms=$(echo "scale=4; $client_handshake_time_avg_us / 1000" | bc)
+fi
+
+if [[ $client_handshake_cycles_count -gt 0 ]]; then
+    mapfile -t sorted_client_handshake_cycles < <(printf "%s\n" "${client_handshake_cycles_values[@]}" | sort -n)
+    median_index=$((client_handshake_cycles_count / 2))
+    if (( client_handshake_cycles_count % 2 == 1 )); then
+        client_handshake_cycles_median="${sorted_client_handshake_cycles[$median_index]}"
+    else
+        lower_index=$((median_index - 1))
+        client_handshake_cycles_median=$(echo "scale=0; (${sorted_client_handshake_cycles[$lower_index]} + ${sorted_client_handshake_cycles[$median_index]}) / 2" | bc)
+    fi
 fi
 
 # 生成详细报告
@@ -232,6 +257,8 @@ fi
     echo "成功提取次数: $client_handshake_time_count"
     echo "总时间: ${client_handshake_time_total_us} us"
     echo "平均时间: ${client_handshake_time_avg_us} us (${client_handshake_time_avg_ms} ms)"
+    echo "CPU cycles成功提取次数: $client_handshake_cycles_count"
+    echo "CPU cycles中位数: ${client_handshake_cycles_median}"
     echo ""
     echo "总结:"
     echo "tag_collection.size() >= 2 且 verifyResult == 1 的比例: "
@@ -247,3 +274,4 @@ echo ""
 echo "tag_collection.size() >= 2 的比例: $tag_ge_2_percentage% ($tag_ge_2_count/$total_runs)"
 echo "verifyResult == 1 的比例: $verify_success_percentage% ($verify_success_count/$total_runs)"
 echo "client TLS handshake computation time 平均值: ${client_handshake_time_avg_us} us (${client_handshake_time_avg_ms} ms, $client_handshake_time_count samples)"
+echo "client TLS handshake cycles 中位数: ${client_handshake_cycles_median} cycles ($client_handshake_cycles_count samples)"

@@ -16,6 +16,7 @@
 #include "DGTOTP.h"
 #include "DGTOTP_PRF.h"
 #include "util.h"
+#include "../test/cycles.h"
 
 #define VERIFIER_IP "127.0.0.1"
 #define VERIFIER_PORT 4434
@@ -306,6 +307,7 @@ int main()
     // Perform TLS handshake
     const SSLIOCounter verifier_handshake_io_before = GetSSLIOCounter(verifier_ssl);
     const auto verifier_handshake_start = std::chrono::steady_clock::now();
+    const unsigned long long verifier_handshake_cycles_before = cpucycles();
 
     if (SSL_connect(verifier_ssl) <= 0)
     {
@@ -313,13 +315,20 @@ int main()
     }
     else
     {
+        const unsigned long long verifier_handshake_cycles_after = cpucycles();
         const auto verifier_handshake_end = std::chrono::steady_clock::now();
-        const auto verifier_handshake_duration_us =
-            std::chrono::duration_cast<std::chrono::microseconds>(verifier_handshake_end - verifier_handshake_start).count();
-        const SSLIOCounter verifier_handshake_io_after = GetSSLIOCounter(verifier_ssl);
 
-        std::cout << "[TLS Handshake Stats] computation time: " << verifier_handshake_duration_us << " us" << std::endl;
-        PrintSSLIOStats("TLS Handshake Stats", verifier_handshake_io_before, verifier_handshake_io_after);
+        const auto verifier_handshake_duration_us =
+            std::chrono::duration_cast<std::chrono::microseconds>(
+                verifier_handshake_end - verifier_handshake_start)
+                .count();
+
+        std::cout << "[TLS Handshake Stats] computation time: "
+                  << verifier_handshake_duration_us << " us" << std::endl;
+
+        std::cout << "[TLS Handshake Stats] cycles: "
+                  << verifier_handshake_cycles_after - verifier_handshake_cycles_before
+                  << std::endl;
         printf("Connected to verifier with %s\n", SSL_get_cipher(verifier_ssl));
 
         // Prepare data to send

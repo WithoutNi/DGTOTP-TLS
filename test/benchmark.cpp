@@ -3,6 +3,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <algorithm>
 #include <stdexcept>
 #include <string>
 #include <ctime>
@@ -13,8 +14,12 @@
 #include <openssl/sha.h>
 
 #include "AS.h"
+#include "ChameleonHash.h"
 #include "DGTOTP.h"
 #include "DGTOTP_PRF.h"
+#include "Member.h"
+#include "MerkleTrees.h"
+#include "TOTP.h"
 #include "cycles.h"
 #include "util.h"
 
@@ -305,6 +310,121 @@ static int CMVerify(const unsigned char *msg,
     }
 
     return memcmp(com, serializedCommitment.data(), com_len) == 0 ? 1 : 0;
+}
+
+static std::string BenchmarkOpenFirstEpoch(const DGTOTP &dgtotp,
+                                           const DGTOTP::Password &structuredPassword,
+                                           long time)
+{
+    const int fixed_epoch = 0;
+    const std::vector<std::string> password = structuredPassword.toVector();
+    const Parameter &params = dgtotp.getParameter();
+    const RA &ra = dgtotp.getRA();
+
+    int per_id_index = -1;
+    for (int j = 0; j < params.getU(); j++)
+    {
+        if (params.getMemberCipher()[j] == password[2])
+        {
+            per_id_index = j;
+            break;
+        }
+    }
+
+    if (per_id_index < 0)
+    {
+        return "";
+    }
+
+    const long pw_sequence = (time - params.getStartTime()) / params.getDeltaS();
+    if (pw_sequence < 0)
+    {
+        return "";
+    }
+
+    unsigned char *cache_tem = static_cast<unsigned char *>(malloc(32));
+    memcpy(cache_tem, password[0].data(), 32);
+
+    for (int i = 0; i < pw_sequence + 1; i++)
+    {
+        unsigned char *temp = Parameter::Sha256(cache_tem, 32);
+        memcpy(cache_tem, temp, 32);
+        free(temp);
+    }
+
+    std::string vp(reinterpret_cast<char *>(cache_tem), 32);
+    std::string vp_hex = Member::byte2hex(cache_tem, 32);
+    free(cache_tem);
+
+    unsigned char *vp_bytes = Parameter::Sha256(vp_hex + password[2] + std::to_string(fixed_epoch));
+    int vp_point = params.getChameHash()->eval(vp_bytes, 32,
+                                               params.getChKey()[per_id_index],
+                                               reinterpret_cast<unsigned char *>(const_cast<char *>(password[1].c_str())),
+                                               password[1].length());
+
+    cache_tem = DGTOTP_PRF::ksAES(params.getG() + "PM" + std::to_string(fixed_epoch), ra.getKsCipher());
+    unsigned int seed = 0;
+    memcpy(&seed, cache_tem, sizeof(unsigned int));
+    std::vector<int> regen_per_table = const_cast<RA &>(ra).Permutation(seed);
+    free(cache_tem);
+
+    int original_member_index = -1;
+    for (int i = 0; i < params.getU(); i++)
+    {
+        if (regen_per_table[i] == per_id_index)
+        {
+            original_member_index = i;
+            break;
+        }
+    }
+
+    if (original_member_index == -1 || vp_point != params.getChHash()[per_id_index])
+    {
+        free(vp_bytes);
+        return "";
+    }
+
+    const std::vector<std::string> &smt = ra.getSMT();
+    if (smt.empty())
+    {
+        free(vp_bytes);
+        return "";
+    }
+
+    TOTP totp;
+    totp.Setup(const_cast<Parameter &>(params));
+    MerkleTrees verifier_tree(smt);
+    if (verifier_tree.Verify(params.getMerkleProof(), smt[fixed_epoch], params.getGpk(), fixed_epoch) == 1 &&
+        totp.Verify(vp, password[0], pw_sequence) == 1)
+    {
+        cache_tem = DGTOTP_PRF::ksAES(params.getG() + "KS" + std::to_string(original_member_index), ra.getKsCipher());
+
+        unsigned char *ke = DGTOTP_PRF::jdkAES("KeyGen" + std::to_string(fixed_epoch), cache_tem);
+        unsigned char *re = DGTOTP_PRF::jdkAES("Rand" + std::to_string(fixed_epoch), cache_tem);
+        unsigned char *id_bytes = RA::ASE_dec(ke,
+                                              reinterpret_cast<unsigned char *>(const_cast<char *>(params.getMemberCipher()[per_id_index].c_str())),
+                                              params.getMemberCipher()[per_id_index].length(),
+                                              re, params.getNonce());
+
+        int ID_plain = Parameter::bytesToInt(id_bytes);
+        const std::vector<std::string> &idlg = ra.getIDLG();
+        std::string opened_id;
+        if (ID_plain >= 0 && static_cast<size_t>(ID_plain) < idlg.size())
+        {
+            opened_id = idlg[ID_plain];
+        }
+
+        free(cache_tem);
+        free(ke);
+        free(re);
+        free(id_bytes);
+        free(vp_bytes);
+
+        return opened_id;
+    }
+
+    free(vp_bytes);
+    return "";
 }
 
 struct TLS13AeadCiphertext
@@ -636,9 +756,10 @@ int main()
     std::vector<std::string> openedIds(NTESTS);
 
     MEASURE("Open..", 1, {
-        openedIds[i] = dgtotpVec[memberSGIds[i]].Open(passwords[i], protocolTime);
+        openedIds[i] = BenchmarkOpenFirstEpoch(dgtotpVec[memberSGIds[i]], passwords[i], protocolTime);
     });
     save_result(fp, "Open", t, NTESTS);
+    const size_t openEmptyCount = std::count(openedIds.begin(), openedIds.end(), "");
 
     std::vector<int> revokeResults(NTESTS, 0);
 
@@ -647,35 +768,41 @@ int main()
     });
     save_result(fp, "Revoke", t, NTESTS);
 
-    printf("TagCheck results:");
-    fprintf(fp, "TagCheckResults");
+    size_t tagCheckSuccessCount = 0;
     for (size_t j = 0; j < NTESTS; ++j)
     {
-        printf(" %d", tagCheckResults[j]);
-        fprintf(fp, " %d", tagCheckResults[j]);
+        if (tagCheckResults[j] == 1)
+        {
+            tagCheckSuccessCount++;
+        }
     }
-    printf("\n");
-    fprintf(fp, "\n");
+    printf("TagCheck success count: %zu/%d\n", tagCheckSuccessCount, NTESTS);
+    fprintf(fp, "TagCheckSuccessCount %zu/%d\n", tagCheckSuccessCount, NTESTS);
 
-    printf("CMVerify results:");
-    fprintf(fp, "ComVerifyResults");
+    size_t cmVerifySuccessCount = 0;
     for (size_t j = 0; j < NTESTS; ++j)
     {
-        printf(" %d", cmVerifyResults[j]);
-        fprintf(fp, " %d", cmVerifyResults[j]);
+        if (cmVerifyResults[j] == 1)
+        {
+            cmVerifySuccessCount++;
+        }
     }
-    printf("\n");
-    fprintf(fp, "\n");
+    printf("CMVerify success count: %zu/%d\n", cmVerifySuccessCount, NTESTS);
+    fprintf(fp, "CMVerifySuccessCount %zu/%d\n", cmVerifySuccessCount, NTESTS);
 
-    printf("PwVerify results:");
-    fprintf(fp, "PwVerifyResults");
+    size_t pwVerifySuccessCount = 0;
     for (size_t j = 0; j < NTESTS; ++j)
     {
-        printf(" %d", pwVerifyResults[j]);
-        fprintf(fp, " %d", pwVerifyResults[j]);
+        if (pwVerifyResults[j] == 1)
+        {
+            pwVerifySuccessCount++;
+        }
     }
-    printf("\n");
-    fprintf(fp, "\n");
+    printf("PwVerify success count: %zu/%d\n", pwVerifySuccessCount, NTESTS);
+    fprintf(fp, "PwVerifySuccessCount %zu/%d\n", pwVerifySuccessCount, NTESTS);
+
+    printf("Open empty count: %zu\n", openEmptyCount);
+    fprintf(fp, "OpenEmptyCount %zu\n", openEmptyCount);
 
     printf("Raw cycle samples saved to benchmark_dgtotp.txt\n");
 

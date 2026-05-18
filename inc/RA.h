@@ -96,6 +96,8 @@ public:
     int getJoinedMemberCount() const { return alpha; }
     const std::vector<std::string> &getIDLG() const { return IDLG; }
     const std::string &getGpk() const { return gpk; }
+    const std::vector<std::string> &getSMT() const { return SMT; }
+    EVP_CIPHER_CTX *getKsCipher() const { return ks_cipher; }
 
 private:
     /// Number of group members

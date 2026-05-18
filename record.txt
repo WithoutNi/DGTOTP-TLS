@@ -1,30 +1,31 @@
 DGTOTP-TLS benchmark
 Running 1000 iterations.
-Parameters: k = 128, m = 256, U = 64, T_s = 1778591736553,  T_e = 1778592936553, delta_e = 300000, delta_s = 5000
+Parameters: k = 128, m = 256, U = 64, T_s = 1778677040592,  T_e = 1778678240592, delta_e = 300000, delta_s = 5000
 TLS_AES_128_GCM_SHA256 AEAD params: TLS header = 5 bytes, content type = 1 byte, GCM tag = 16 bytes, overhead = 22 bytes, payload = 69 bytes
-AEADEnc..   avg.         0.91 us (    0.00 ms); median            2,612 cycles,     1x:            2,612 cycles
-AEADDec..   avg.         0.42 us (    0.00 ms); median            1,330 cycles,     1x:            1,330 cycles
-Setup..     avg.   5073577.04 us ( 5073.58 ms); median   15,740,969,742 cycles,     1x:   15,740,969,742 cycles
-prf1..      avg.         1.21 us (    0.00 ms); median            1,800 cycles,     1x:            1,800 cycles
-SGIdGen..   avg.         0.58 us (    0.00 ms); median            1,791 cycles,     1x:            1,791 cycles
-PInit..     avg.         5.21 us (    0.01 ms); median            7,055 cycles,     1x:            7,055 cycles
-Join..      avg.         0.70 us (    0.00 ms); median            1,637 cycles,     1x:            1,637 cycles
-PwGen..     avg.        56.48 us (    0.06 ms); median           99,902 cycles,     1x:           99,902 cycles
-CMGen..     avg.         1.29 us (    0.00 ms); median            1,561 cycles,     1x:            1,561 cycles
-TagGen..    avg.        10.83 us (    0.01 ms); median            2,794 cycles,     1x:            2,794 cycles
-TagCheck..  avg.         2.06 us (    0.00 ms); median            6,290 cycles,     1x:            6,290 cycles
-CMVerify..  avg.         0.86 us (    0.00 ms); median            2,612 cycles,     1x:            2,612 cycles
-GMUpdate..  avg.      4612.68 us (    4.61 ms); median       14,236,227 cycles,     1x:       14,236,227 cycles
-PwVerify..  avg.       148.52 us (    0.15 ms); median          462,039 cycles,     1x:          462,039 cycles
-Open..      avg.         0.92 us (    0.00 ms); median            2,900 cycles,     1x:            2,900 cycles
-Revoke..    avg.         0.11 us (    0.00 ms); median              154 cycles,     1x:              154 cycles
+handshake.. avg.       720.64 us (    0.72 ms); median        1,938,212 cycles,     1x:        1,938,212 cycles
+AEADEnc..   avg.         0.74 us (    0.00 ms); median            2,276 cycles,     1x:            2,276 cycles
+AEADDec..   avg.         0.37 us (    0.00 ms); median            1,176 cycles,     1x:            1,176 cycles
+Setup..     avg.   5409551.69 us ( 5409.55 ms); median   16,841,635,007 cycles,     1x:   16,841,635,007 cycles
+prf1..      avg.         0.54 us (    0.00 ms); median            1,641 cycles,     1x:            1,641 cycles
+SGIdGen..   avg.         0.52 us (    0.00 ms); median            1,632 cycles,     1x:            1,632 cycles
+PInit..     avg.         2.74 us (    0.00 ms); median            6,474 cycles,     1x:            6,474 cycles
+Join..      avg.         0.64 us (    0.00 ms); median            1,484 cycles,     1x:            1,484 cycles
+PwGen..     avg.        48.52 us (    0.05 ms); median           89,207 cycles,     1x:           89,207 cycles
+CMGen..     avg.         0.53 us (    0.00 ms); median            1,405 cycles,     1x:            1,405 cycles
+TagGen..    avg.         6.47 us (    0.01 ms); median            2,542 cycles,     1x:            2,542 cycles
+TagCheck..  avg.         1.84 us (    0.00 ms); median            5,766 cycles,     1x:            5,766 cycles
+CMVerify..  avg.         0.79 us (    0.00 ms); median            2,393 cycles,     1x:            2,393 cycles
+GMUpdate..  avg.      4407.47 us (    4.41 ms); median       13,396,859 cycles,     1x:       13,396,859 cycles
+PwVerify..  avg.       165.79 us (    0.17 ms); median          489,511 cycles,     1x:          489,511 cycles
+Open..      avg.        88.30 us (    0.09 ms); median          270,113 cycles,     1x:          270,113 cycles
+Revoke..    avg.         0.17 us (    0.00 ms); median              154 cycles,     1x:              154 cycles
 
 TLS_AES_128_GCM_SHA256 secp256r1
-client TLS handshake computation time 平均值: 722.76 us (.7227 ms, 100 samples)
-client TLS handshake cycles 中位数: 2069985 cycles (100 samples)
-TLS handshake communication overhead: sent 279 bytes, received 1873 bytes, total 2152 bytes
-TLS Enc computation time 平均值:0.77 us (    0.00 ms)
-TLS Dec computation time 平均值:0.38 us (    0.00 ms)
+client TLS handshake time 平均值: 720.64 us (0.7206 ms, 1000 samples)
+client TLS handshake cycles 中位数: 1938212 cycles (1000 samples)
+[TLS Handshake Stats] communication overhead: sent 279 bytes, received 909 bytes, total 1188 bytes
+TLS Enc computation time 平均值:0.77 us (    0.00 ms); cycles 中位数   2,276 cycles
+TLS Dec computation time 平均值:0.38 us (    0.00 ms); cycles 中位数   1,176 cycles
 
 [TLS Handshake Stats] computation time: 600 us
 [TLS Handshake Stats] communication overhead: sent 279 bytes, received 1060 bytes, total 1339 bytes
@@ -73,6 +74,10 @@ block size=256bytes 0.0000486 ms 0.0486 μs
 client TLS handshake computation time 平均值: 1375.84 us (1.3758 ms, 100 samples)
 [TLS Handshake Stats] computation time: 2990 us
 [TLS Handshake Stats] communication overhead: sent 279 bytes, received 1873 bytes, total 2152 bytes
+
+#secp256r1
+[TLS Handshake Stats] computation time: 702 us
+[TLS Handshake Stats] communication overhead: sent 279 bytes, received 909 bytes, total 1188 bytes
 
 
 ##openssl 3.0.13

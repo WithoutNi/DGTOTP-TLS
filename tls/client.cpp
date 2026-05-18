@@ -322,6 +322,7 @@ int main()
             std::chrono::duration_cast<std::chrono::microseconds>(
                 verifier_handshake_end - verifier_handshake_start)
                 .count();
+        const SSLIOCounter verifier_handshake_io_after = GetSSLIOCounter(verifier_ssl);
 
         std::cout << "[TLS Handshake Stats] computation time: "
                   << verifier_handshake_duration_us << " us" << std::endl;
@@ -329,6 +330,7 @@ int main()
         std::cout << "[TLS Handshake Stats] cycles: "
                   << verifier_handshake_cycles_after - verifier_handshake_cycles_before
                   << std::endl;
+        PrintSSLIOStats("TLS Handshake Stats", verifier_handshake_io_before, verifier_handshake_io_after);
         printf("Connected to verifier with %s\n", SSL_get_cipher(verifier_ssl));
 
         // Prepare data to send

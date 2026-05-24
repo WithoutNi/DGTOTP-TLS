@@ -7,7 +7,7 @@ AEADEnc..   avg.         0.74 us (    0.00 ms); median            2,276 cycles, 
 AEADDec..   avg.         0.37 us (    0.00 ms); median            1,176 cycles,     1x:            1,176 cycles
 Setup..     avg.   5409551.69 us ( 5409.55 ms); median   16,841,635,007 cycles,     1x:   16,841,635,007 cycles
 prf1..      avg.         0.54 us (    0.00 ms); median            1,641 cycles,     1x:            1,641 cycles
-SGIdGen..   avg.         0.52 us (    0.00 ms); median            1,632 cycles,     1x:            1,632 cycles
+SGMap..   avg.         0.52 us (    0.00 ms); median            1,632 cycles,     1x:            1,632 cycles
 PInit..     avg.         2.74 us (    0.00 ms); median            6,474 cycles,     1x:            6,474 cycles
 Join..      avg.         0.64 us (    0.00 ms); median            1,484 cycles,     1x:            1,484 cycles
 PwGen..     avg.        48.52 us (    0.05 ms); median           89,207 cycles,     1x:           89,207 cycles

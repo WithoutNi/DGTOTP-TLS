@@ -1,4 +1,6 @@
 #include "ChameleonHash.h"
+#include "Parameter.h"
+#include <cstdlib>
 #include <cstring>
 #include <openssl/rand.h>
 #include <openssl/bn.h>
@@ -143,15 +145,14 @@ int ChameleonHash::eval(unsigned char *msg, size_t msg_len,
     BN_bn2binpad(x, x_bytes, 32);
     BN_bn2binpad(y, y_bytes, 32);
 
-    unsigned char hash[32];
-    SHA256_CTX sha256;
-    SHA256_Init(&sha256);
-    SHA256_Update(&sha256, x_bytes, 32);
-    SHA256_Update(&sha256, y_bytes, 32);
-    SHA256_Final(hash, &sha256);
+    unsigned char point_bytes[64];
+    memcpy(point_bytes, x_bytes, 32);
+    memcpy(point_bytes + 32, y_bytes, 32);
+    unsigned char *hash = Parameter::Sha256(point_bytes, sizeof(point_bytes));
 
     // Convert to integer
     uint32_t result = (hash[0] << 24) | (hash[1] << 16) | (hash[2] << 8) | hash[3];
+    free(hash);
 
     // Clean up
     BN_free(m_bn);

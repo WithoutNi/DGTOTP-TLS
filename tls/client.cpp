@@ -98,9 +98,9 @@ void msg_callback(int write_p, int version, int content_type,
     (void)ssl;
     (void)arg;
     const unsigned char *p = (unsigned char *)buf;
-    if (len > 0 && p[0] == SSL3_MT_FINISHED && write_p)
+    if (len > 0 && p[0] == SSL3_MT_FINISHED && !write_p)
     {
-        printf("\n--- sent Finished Message (%zu bytes) ---\n", len);
+        printf("\n--- Received Finished Message (%zu bytes) ---\n", len);
 
         // Save Finished message
         memcpy(fin_msg, buf, len);
@@ -158,7 +158,7 @@ int main()
     RAND_bytes(ID, ID_LENGTH_BYTES);
     memberId = bytesToHex(ID, ID_LENGTH_BYTES);
 
-    int SGId = SGIdGen(k_sg, sizeof(k_sg), memberId);
+    int SGId = SGMap(k_sg, sizeof(k_sg), memberId);
     const std::string groupName = "DGTOTP" + std::to_string(SGId);
     dgtotp.ImportParameters(securityParameter, groupName, groupMemberCount, sharedStartTime, endTime,
                             verificationPeriod, passwordGenerationPeriod);
@@ -338,7 +338,8 @@ int main()
         {
             const long protocolTime = getCurrentTimeMillis();
             dgtotp.ImportJoinReceipt(memberId, joinReceipt);
-            password = dgtotp.PwGen(memberId, protocolTime);
+            std::string secretSeed = dgtotp.GetSD(memberId, protocolTime);
+            password = dgtotp.PwGen(memberId, secretSeed, protocolTime);
 
             size_t alpha_ID = bytesToInt(alpha_bytes);
             printf("alpha_ID: %ld\n", alpha_ID);

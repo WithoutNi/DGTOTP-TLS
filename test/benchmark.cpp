@@ -12,6 +12,7 @@
 #include <openssl/evp.h>
 #include <openssl/rand.h>
 #include <openssl/sha.h>
+#include <openssl/bn.h>
 
 #include "AS.h"
 #include "ChameleonHash.h"
@@ -19,11 +20,12 @@
 #include "DGTOTP_PRF.h"
 #include "Member.h"
 #include "MerkleTrees.h"
+#include "Parameter.h"
 #include "TOTP.h"
 #include "cycles.h"
 #include "util.h"
 
-#define NTESTS 1000
+#define NTESTS 10
 
 static int cmp_llu(const void *a, const void *b)
 {
@@ -565,7 +567,22 @@ int main()
     unsigned char prf_key[KEY_LENGTH_BYTES] = {0};
     unsigned char prf_out[KEY_LENGTH_BYTES] = {0};
     RAND_bytes(prf_key, KEY_LENGTH_BYTES);
-    const std::string prf_message = "benchmark message";
+    unsigned char message[64] = {0};
+    RAND_bytes(message, sizeof(message));
+
+    ChameleonHash ch;
+    unsigned char ch_rk[32] = {0};
+    unsigned char ch_msg1[32] = {0};
+    unsigned char ch_msg2[32] = {0};
+    unsigned char ch_rand[32] = {0};
+    RAND_bytes(ch_rk, sizeof(ch_rk));
+    RAND_bytes(ch_msg1, sizeof(ch_msg1));
+    RAND_bytes(ch_msg2, sizeof(ch_msg2));
+    RAND_bytes(ch_rand, sizeof(ch_rand));
+    ch.Setup(ch_rk);
+    EC_POINT *ecc_result = EC_POINT_new(ch.getGroup());
+    BIGNUM *ecc_scalar = BN_bin2bn(ch_rk, 32, nullptr);
+    int ch_hash = 0;
 
     const size_t tls13_payload_len = 69;
     const unsigned char tls13_content_type = 0x17;
@@ -639,8 +656,38 @@ int main()
     });
     save_result(fp, "Setup", t, NTESTS);
 
-    MEASURE("prf1..", 1, prf1(prf_out, KEY_LENGTH_BYTES, prf_key, KEY_LENGTH_BYTES, reinterpret_cast<const unsigned char *>(prf_message.data()), prf_message.size()));
+    MEASURE("prf1..", 1, prf1(prf_out, KEY_LENGTH_BYTES, prf_key, KEY_LENGTH_BYTES, message, 64));
     save_result(fp, "prf1", t, NTESTS);
+
+    MEASURE("SHA256..", 1, {
+        unsigned char *sha256_out = Parameter::Sha256(message, 64);
+        free(sha256_out);
+    });
+    save_result(fp, "SHA256", t, NTESTS);
+
+    MEASURE("ECM..", 1, {
+        EC_POINT_mul(ch.getGroup(), ecc_result, nullptr, ch.getPk(), ecc_scalar, nullptr);
+    });
+    save_result(fp, "ECM", t, NTESTS);
+
+    std::vector<ChameleonHash> chVec(NTESTS);
+
+    MEASURE("CHSetup..", 1, chVec[i].Setup(ch_rk));
+    save_result(fp, "CHSetup", t, NTESTS);
+
+    MEASURE("CHEval..", 1, {
+        ch_hash = chVec[i].eval(ch_msg1, sizeof(ch_msg1), chVec[i].getPk(), ch_rand, sizeof(ch_rand));
+    });
+    save_result(fp, "CHEval", t, NTESTS);
+
+    MEASURE("CHColl..", 1, {
+        unsigned char *ch_collision = chVec[i].Collision(ch_msg1, sizeof(ch_msg1),
+                                                         ch_rand, sizeof(ch_rand),
+                                                         ch_msg2, sizeof(ch_msg2),
+                                                         chVec[i].getSk());
+        free(ch_collision);
+    });
+    save_result(fp, "CHColl", t, NTESTS);
 
     std::vector<std::string> memberIds(NTESTS);
     std::vector<int> memberSGIds(NTESTS);
@@ -649,10 +696,10 @@ int main()
         memberIds[j] = makeMemberId(j);
     }
 
-    MEASURE("SGIdGen..", 1, {
-        memberSGIds[i] = SGIdGen(k_sg, sizeof(k_sg), memberIds[i]);
+    MEASURE("SGMap..", 1, {
+        memberSGIds[i] = SGMap(k_sg, sizeof(k_sg), memberIds[i]);
     });
-    save_result(fp, "SGIdGen", t, NTESTS);
+    save_result(fp, "SGMap", t, NTESTS);
 
     MEASURE("PInit..", 1, dgtotpVec[memberSGIds[i]].PInit(memberIds[i]));
     save_result(fp, "PInit", t, NTESTS);
@@ -677,10 +724,17 @@ int main()
         as.AddSkey(skey);
     }
 
+    std::vector<std::string> secretSeeds(NTESTS);
+
+    MEASURE("GetSD..", 1, {
+        secretSeeds[i] = dgtotpVec[memberSGIds[i]].GetSD(memberIds[i], protocolTime);
+    });
+    save_result(fp, "GetSD", t, NTESTS);
+
     std::vector<DGTOTP::Password> passwords(NTESTS);
 
     MEASURE("PwGen..", 1, {
-        passwords[i] = dgtotpVec[memberSGIds[i]].PwGen(memberIds[i], protocolTime);
+        passwords[i] = dgtotpVec[memberSGIds[i]].PwGen(memberIds[i], secretSeeds[i], protocolTime);
     });
     save_result(fp, "PwGen", t, NTESTS);
 
@@ -810,6 +864,8 @@ int main()
     {
         free(setupSkSke[j]);
     }
+    EC_POINT_free(ecc_result);
+    BN_free(ecc_scalar);
     fclose(fp);
     return 0;
 }

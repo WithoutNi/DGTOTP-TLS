@@ -249,7 +249,7 @@ int main()
                 memberId = bytesToString((const char *)content, content_len);
                 std::cout << "memberId_string: " << memberId << std::endl;
 
-                selectedSGId = SGIdGen(k_sg, sizeof(k_sg), memberId);
+                selectedSGId = SGMap(k_sg, sizeof(k_sg), memberId);
                 if (selectedSGId < 0 || static_cast<size_t>(selectedSGId) >= SG_NUM)
                 {
                     throw std::runtime_error("Computed SGId out of range");
@@ -341,7 +341,7 @@ int main()
         unsigned char new_ID[ID_LENGTH_BYTES];
         RAND_bytes(new_ID, ID_LENGTH_BYTES);
         std::string new_memberId = bytesToHex(new_ID, ID_LENGTH_BYTES);
-        int new_SGId = SGIdGen(k_sg, sizeof(k_sg), new_memberId);
+        int new_SGId = SGMap(k_sg, sizeof(k_sg), new_memberId);
         if (!(dgtotpVec[new_SGId].getRA().IsJoinedMember(new_memberId)))
         {
             if (dgtotpVec[new_SGId].getRA().getJoinedMemberCount() >=

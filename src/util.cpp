@@ -1,9 +1,11 @@
 #include "util.h"
+#include "Parameter.h"
 
 #include <openssl/sha.h>
 #include <openssl/evp.h>
 #include <openssl/hmac.h>
 #include <openssl/ec.h>
+#include <cstdlib>
 #include <iostream>
 #include <sstream>
 #include <iomanip>
@@ -27,48 +29,30 @@ pw_CM CMGen(const std::vector<std::string> &pw,
         throw std::runtime_error("Invalid password format");
     }
 
-    // Buffers to store hash values
-    unsigned char UCM[SHA256_DIGEST_LENGTH];
-    unsigned char SCM[SHA256_DIGEST_LENGTH];
-
-    // Calculate UCM = SHA256(pw, "used")
-    // 1. Initialize context
-    SHA256_CTX sha256_ucm;
-    SHA256_Init(&sha256_ucm);
-
-    // 2. Add all password components
+    // Calculate UCM = SHA256(pw||"used")
+    std::string ucm_input;
     for (const auto &part : pw)
     {
-        SHA256_Update(&sha256_ucm, part.c_str(), part.length());
+        ucm_input.append(part);
     }
+    ucm_input.append("used");
+    unsigned char *UCM = Parameter::Sha256(ucm_input);
 
-    // 3. Add "used" string
-    const std::string used_str = "used";
-    SHA256_Update(&sha256_ucm, used_str.c_str(), used_str.length());
-
-    // 4. Compute final hash
-    SHA256_Final(UCM, &sha256_ucm);
-
-    // Calculate SCM = SHA256(pw, finmsg)
-    // 1. Initialize context
-    SHA256_CTX sha256_scm;
-    SHA256_Init(&sha256_scm);
-
-    // 2. Add all password components
+    // Calculate SCM = SHA256(pw||finmsg||"bind")
+    std::string scm_input;
     for (const auto &part : pw)
     {
-        SHA256_Update(&sha256_scm, part.c_str(), part.length());
+        scm_input.append(part);
     }
-
-    // 3. Add Finished message
-    SHA256_Update(&sha256_scm, finmsg, finmsg_len);
-
-    // 4. Compute final hash
-    SHA256_Final(SCM, &sha256_scm);
+    scm_input.append(reinterpret_cast<const char *>(finmsg), finmsg_len);
+    scm_input.append("bind");
+    unsigned char *SCM = Parameter::Sha256(scm_input);
 
     pw_CM commitment;
     commitment.UCM = std::string(reinterpret_cast<char *>(UCM), SHA256_DIGEST_LENGTH);
     commitment.SCM = std::string(reinterpret_cast<char *>(SCM), SHA256_DIGEST_LENGTH);
+    free(UCM);
+    free(SCM);
     return commitment;
 }
 
@@ -104,19 +88,19 @@ void prf(unsigned char *out, size_t outlen, unsigned char *ki, size_t key_len, i
     memcpy(out, hmac_result, outlen);
 }
 
-int SGIdGen(const unsigned char *subgroup_key, size_t key_len, const std::string &id)
+int SGMap(const unsigned char *subgroup_key, size_t key_len, const std::string &id)
 {
     if (subgroup_key == nullptr)
     {
-        throw std::invalid_argument("Null subgroup key passed to SGIdGen");
+        throw std::invalid_argument("Null subgroup key passed to SGMap");
     }
     if (key_len == 0)
     {
-        throw std::invalid_argument("Empty subgroup key passed to SGIdGen");
+        throw std::invalid_argument("Empty subgroup key passed to SGMap");
     }
     if (id.empty())
     {
-        throw std::invalid_argument("Empty identity passed to SGIdGen");
+        throw std::invalid_argument("Empty identity passed to SGMap");
     }
 
     unsigned char sg_id[SG_LENGTH_BYTES];

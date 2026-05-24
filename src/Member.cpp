@@ -9,6 +9,7 @@
 #include <cstring>
 #include <sstream>
 #include <iomanip>
+#include <stdexcept>
 #include <openssl/rand.h>
 #include <gmp.h>
 
@@ -102,24 +103,21 @@ unsigned char *Member::GetSD(EVP_CIPHER_CTX *SECRET_KEY, long time, Parameter &p
     return result;
 }
 
-std::vector<std::string> Member::PwGen(std::vector<unsigned char *> &Ax, long time, Parameter &params)
+std::vector<std::string> Member::PwGen(std::vector<unsigned char *> &Ax, const std::string &secret_seed,
+                                       long time, Parameter &params)
 {
     // DGTOTP passwords
     std::vector<std::string> DGTOTP_pw(3);
     int instance_index = (int)((time - START_TIME) / params.getDeltaE());
     // std::cout << "In Member, current_verify_epoch=" << std::dec << instance_index << std::endl;
 
-    if (!SECRET_SEED.empty())
+    if (secret_seed.length() != 64)
     {
-        cache_string = SECRET_SEED;
+        throw std::invalid_argument("Secret seed must be a 32-byte hexadecimal string");
     }
-    else
-    {
-        unsigned char *sd = GetSD(SECRET_KEY, time, params);
-        cache_string = byte2hex(sd, 32);
-        SECRET_SEED = cache_string;
-        free(sd);
-    }
+
+    SECRET_SEED = secret_seed;
+    cache_string = SECRET_SEED;
 
     // Password index z
     int pw_sequence = (time - instance_index * params.getDeltaE() - START_TIME) / params.getDeltaS();

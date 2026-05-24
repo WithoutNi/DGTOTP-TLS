@@ -190,7 +190,7 @@ std::string DGTOTP::GetSD(const std::string &member_id, long time)
     return secret_seed;
 }
 
-DGTOTP::Password DGTOTP::PwGen(const std::string &member_id, long time)
+DGTOTP::Password DGTOTP::PwGen(const std::string &member_id, const std::string &secret_seed, long time)
 {
     ensureSetup();
     MemberMaterials &memberMaterials = requireMaterials(member_id);
@@ -200,7 +200,7 @@ DGTOTP::Password DGTOTP::PwGen(const std::string &member_id, long time)
         throw std::runtime_error("Join must be called before PwGen");
     }
 
-    return Password::fromVector(memberMaterials.member.PwGen(memberMaterials.join_receipt, time, params));
+    return Password::fromVector(memberMaterials.member.PwGen(memberMaterials.join_receipt, secret_seed, time, params));
 }
 
 int DGTOTP::Verify(const Password &password, long time)

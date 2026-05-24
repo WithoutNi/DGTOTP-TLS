@@ -125,7 +125,6 @@ int CMVerify(unsigned char *msg, size_t msg_len, unsigned char *fin_msg, size_t 
     }
 }
 
-// Callback function to capture Finished message
 void msg_callback(int write_p, int version, int content_type,
                   const void *buf, size_t len, SSL *ssl, void *arg)
 {
@@ -135,9 +134,9 @@ void msg_callback(int write_p, int version, int content_type,
     (void)ssl;
     (void)arg;
     const unsigned char *p = (unsigned char *)buf;
-    if (len > 0 && p[0] == SSL3_MT_FINISHED && !write_p)
+    if (len > 0 && p[0] == SSL3_MT_FINISHED && write_p)
     {
-        printf("\n--- Received Finished Message (%zu bytes) ---\n", len);
+        printf("\n--- sent Finished Message (%zu bytes) ---\n", len);
 
         // Save Finished message
         memcpy(fin_msg, buf, len);

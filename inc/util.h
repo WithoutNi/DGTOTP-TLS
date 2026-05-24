@@ -50,7 +50,7 @@ void prf(unsigned char *out, size_t outlen, unsigned char *ki, size_t key_len, i
 /// @param[in] key_len      Subgroup key length
 /// @param[in] id           Member identity string
 /// @return Integer subgroup identifier in [0, 2^(8*SG_LENGTH_BYTES))
-int SGIdGen(const unsigned char *subgroup_key, size_t key_len, const std::string &id);
+int SGMap(const unsigned char *subgroup_key, size_t key_len, const std::string &id);
 
 /// Convert byte array to string
 /// @param[in] data   Byte array

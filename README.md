@@ -49,9 +49,9 @@ make
 ## How to Run
 ```bash
 # Generate a private key
-openssl genpkey -algorithm RSA -out server.key
+openssl ecparam -name prime256v1 -genkey -noout -out server.key
 # Generate a self-signed certificate
-openssl req -new -x509 -key server.key -out server.crt -days 365 -subj "/C=CN/ST=Beijing/L=Beijing/O=Test/CN=localhost"
+openssl req -new -x509 -key server.key -out server.crt -days 365 -subj "/C=CN/ST=Beijing/L=Beijing/O=DGTOTP-TLS/CN=localhost"
 # Running the Server
 ./server
 # Running the Verifier

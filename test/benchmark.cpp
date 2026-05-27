@@ -115,12 +115,10 @@ static void save_result(FILE *fp, const char *preamble, unsigned long long *l, s
 
 static std::string makeMemberId(size_t index)
 {
-    unsigned char id[ID_LENGTH_BYTES] = {0};
-    for (size_t i = 0; i < ID_LENGTH_BYTES; ++i)
-    {
-        id[i] = static_cast<unsigned char>((index * 131 + i * 17) & 0xFF);
-    }
-    return bytesToHex(id, ID_LENGTH_BYTES);
+    const std::string input = "benchmark-member-" + std::to_string(index);
+    unsigned char digest[SHA256_DIGEST_LENGTH] = {0};
+    SHA256(reinterpret_cast<const unsigned char *>(input.data()), input.size(), digest);
+    return bytesToHex(digest, ID_LENGTH_BYTES);
 }
 
 static void Setup(int securityParameter,
@@ -150,6 +148,7 @@ static void Setup(int securityParameter,
 static std::vector<std::vector<unsigned char>> TagGen(
     const Parameter &params,
     AS &as,
+    long time,
     const unsigned char *received_msg,
     size_t received_msg_len)
 {
@@ -184,7 +183,6 @@ static std::vector<std::vector<unsigned char>> TagGen(
     }
 
     std::vector<std::vector<unsigned char>> tag_collection;
-    const long time = getCurrentTimeMillis();
     const int current_epoch_j = static_cast<int>((time - params.getStartTime()) / params.getDeltaE());
     const std::string kg_input = std::string("KG") + std::to_string(current_epoch_j);
     const std::string kt_input = std::string("KT") + SG;
@@ -216,13 +214,15 @@ static std::vector<std::vector<unsigned char>> TagGen(
 }
 
 static int TagCheck(unsigned char ki[],
-                    int current_epoch_j,
+                    const Parameter &params,
+                    long time,
                     const std::string &SG,
                     const pw_CM &commitment,
                     const unsigned char *tags,
                     size_t tag_len)
 {
     unsigned char kij[KEY_LENGTH_BYTES];
+    const int current_epoch_j = static_cast<int>((time - params.getStartTime()) / params.getDeltaE());
     const std::string kg_input = std::string("KG") + std::to_string(current_epoch_j);
     prf1(kij, KEY_LENGTH_BYTES, ki, KEY_LENGTH_BYTES,
          reinterpret_cast<const unsigned char *>(kg_input.data()), kg_input.size());
@@ -695,6 +695,11 @@ int main()
     {
         memberIds[j] = makeMemberId(j);
     }
+    std::vector<std::string> uniqueMemberIds = memberIds;
+    std::sort(uniqueMemberIds.begin(), uniqueMemberIds.end());
+    uniqueMemberIds.erase(std::unique(uniqueMemberIds.begin(), uniqueMemberIds.end()), uniqueMemberIds.end());
+    printf("Unique member IDs: %zu/%d\n", uniqueMemberIds.size(), NTESTS);
+    fprintf(fp, "UniqueMemberIds %zu/%d\n", uniqueMemberIds.size(), NTESTS);
 
     MEASURE("SGMap..", 1, {
         memberSGIds[i] = SGMap(k_sg, sizeof(k_sg), memberIds[i]);
@@ -764,12 +769,9 @@ int main()
 
     MEASURE("TagGen..", 1, {
         tagCollections[i] =
-            TagGen(dgtotpVec[memberSGIds[i]].getParameter(), as, messages[i].data(), messages[i].size());
+            TagGen(dgtotpVec[memberSGIds[i]].getParameter(), as, protocolTime, messages[i].data(), messages[i].size());
     });
     save_result(fp, "TagGen", t, NTESTS);
-
-    const int current_epoch_j =
-        static_cast<int>((getCurrentTimeMillis() - sharedStartTime) / verificationPeriod);
 
     std::vector<std::vector<unsigned char>> tagBuffers(NTESTS);
     for (size_t j = 0; j < tagBuffers.size(); ++j)
@@ -780,7 +782,7 @@ int main()
     std::vector<int> tagCheckResults(NTESTS, 0);
 
     MEASURE("TagCheck..", 1, {
-        tagCheckResults[i] = TagCheck(kiVec[i].data(), current_epoch_j,
+        tagCheckResults[i] = TagCheck(kiVec[i].data(), dgtotpVec[memberSGIds[i]].getParameter(), protocolTime,
                                       std::string(1, static_cast<char>(memberSGIds[i])),
                                       commitments[i], tagBuffers[i].data(), tagBuffers[i].size());
     });

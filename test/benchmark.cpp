@@ -13,6 +13,7 @@
 #include <openssl/rand.h>
 #include <openssl/sha.h>
 #include <openssl/bn.h>
+#include <gmp.h>
 
 #include "AS.h"
 #include "ChameleonHash.h"
@@ -584,6 +585,31 @@ int main()
     BIGNUM *ecc_scalar = BN_bin2bn(ch_rk, 32, nullptr);
     int ch_hash = 0;
 
+    unsigned char mod_base_bytes[32] = {0};
+    unsigned char mod_exponent_bytes[32] = {0};
+    RAND_bytes(mod_base_bytes, sizeof(mod_base_bytes));
+    RAND_bytes(mod_exponent_bytes, sizeof(mod_exponent_bytes));
+
+    mpz_t mod_base, mod_exponent, mod_modulus, mod_exp_result, mod_inv_result;
+    mpz_init(mod_base);
+    mpz_init(mod_exponent);
+    mpz_init(mod_modulus);
+    mpz_init(mod_exp_result);
+    mpz_init(mod_inv_result);
+    mpz_set_str(mod_modulus, "FFFFFFFF00000000FFFFFFFFFFFFFFFFBCE6FAADA7179E84F3B9CAC2FC632551", 16);
+    mpz_import(mod_base, sizeof(mod_base_bytes), 1, 1, 0, 0, mod_base_bytes);
+    mpz_mod(mod_base, mod_base, mod_modulus);
+    if (mpz_sgn(mod_base) == 0)
+    {
+        mpz_set_ui(mod_base, 1);
+    }
+    mpz_import(mod_exponent, sizeof(mod_exponent_bytes), 1, 1, 0, 0, mod_exponent_bytes);
+    mpz_mod(mod_exponent, mod_exponent, mod_modulus);
+    if (mpz_sgn(mod_exponent) == 0)
+    {
+        mpz_set_ui(mod_exponent, 1);
+    }
+
     const size_t tls13_payload_len = 69;
     const unsigned char tls13_content_type = 0x17;
     const unsigned char tls13_header[5] = {
@@ -670,6 +696,16 @@ int main()
     });
     save_result(fp, "ECM", t, NTESTS);
 
+    MEASURE("Exp..", 1, {
+        mpz_powm(mod_exp_result, mod_base, mod_exponent, mod_modulus);
+    });
+    save_result(fp, "Exp", t, NTESTS);
+
+    MEASURE("Inv..", 1, {
+        mpz_invert(mod_inv_result, mod_base, mod_modulus);
+    });
+    save_result(fp, "Inv", t, NTESTS);
+
     std::vector<ChameleonHash> chVec(NTESTS);
 
     MEASURE("CHSetup..", 1, chVec[i].Setup(ch_rk));
@@ -695,11 +731,6 @@ int main()
     {
         memberIds[j] = makeMemberId(j);
     }
-    std::vector<std::string> uniqueMemberIds = memberIds;
-    std::sort(uniqueMemberIds.begin(), uniqueMemberIds.end());
-    uniqueMemberIds.erase(std::unique(uniqueMemberIds.begin(), uniqueMemberIds.end()), uniqueMemberIds.end());
-    printf("Unique member IDs: %zu/%d\n", uniqueMemberIds.size(), NTESTS);
-    fprintf(fp, "UniqueMemberIds %zu/%d\n", uniqueMemberIds.size(), NTESTS);
 
     MEASURE("SGMap..", 1, {
         memberSGIds[i] = SGMap(k_sg, sizeof(k_sg), memberIds[i]);
@@ -868,6 +899,11 @@ int main()
     }
     EC_POINT_free(ecc_result);
     BN_free(ecc_scalar);
+    mpz_clear(mod_base);
+    mpz_clear(mod_exponent);
+    mpz_clear(mod_modulus);
+    mpz_clear(mod_exp_result);
+    mpz_clear(mod_inv_result);
     fclose(fp);
     return 0;
 }

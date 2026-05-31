@@ -67,11 +67,6 @@ public:
     /// Clean up allocated resources
     void cleanup();
 
-    /// Convert integer to byte array
-    /// @param[in] i Integer value
-    /// @return Byte array
-    static unsigned char *intToBytes(int i);
-
     /// AES-GCM encryption
     /// @param[in] data       Plaintext data
     /// @param[in] data_len   Data length

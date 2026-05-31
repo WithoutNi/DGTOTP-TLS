@@ -341,8 +341,8 @@ int main()
             std::string secretSeed = dgtotp.GetSD(memberId, protocolTime);
             password = dgtotp.PwGen(memberId, secretSeed, protocolTime);
 
-            size_t alpha_ID = bytesToInt(alpha_bytes);
-            printf("alpha_ID: %ld\n", alpha_ID);
+            int alpha_ID = Parameter::bytesToInt(alpha_bytes);
+            printf("alpha_ID: %d\n", alpha_ID);
             printf("fin_msg:%ld bytes\n", fin_msg_len);
             for (size_t i = 0; i < fin_msg_len; i++)
             {

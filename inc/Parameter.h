@@ -210,8 +210,14 @@ public:
 
     /// Convert byte array to integer
     /// @param[in] bytes Byte array
+    /// @param[in] length Length of the byte array
     /// @return Integer value
-    static int bytesToInt(unsigned char *bytes);
+    static int bytesToInt(unsigned char *bytes, size_t length = 4);
+
+    /// Convert integer to byte array
+    /// @param[in] i Integer value
+    /// @return Byte array
+    static unsigned char *intToBytes(int i);
 
     /// Merge two byte arrays
     /// @param[in] byte_1     First byte array
@@ -221,11 +227,6 @@ public:
     /// @return Merged byte array
     static unsigned char *byteMerger(unsigned char *byte_1, size_t byte_1_len,
                                      unsigned char *byte_2, size_t byte_2_len);
-
-    /// Convert integer to byte array
-    /// @param[in] i Integer value
-    /// @return Byte array
-    static unsigned char *intToBytes(int i);
 
 private:
     // ===================== Member Variables =====================

@@ -10,6 +10,7 @@
 #include <vector>
 
 #include <openssl/evp.h>
+#include <openssl/hmac.h>
 #include <openssl/rand.h>
 #include <openssl/sha.h>
 #include <openssl/bn.h>
@@ -27,6 +28,9 @@
 #include "util.h"
 
 #define NTESTS 10
+
+static constexpr size_t MOD_EXP_MODULUS_BYTES = 384;
+static constexpr size_t MOD_EXP_EXPONENT_BYTES = 32;
 
 static int cmp_llu(const void *a, const void *b)
 {
@@ -113,6 +117,52 @@ static void save_result(FILE *fp, const char *preamble, unsigned long long *l, s
         ,                                  \
         1000);
 #define MEASURE(TEXT, MUL, FNCALL) MEASURE_GENERIC(TEXT, MUL, FNCALL, 1)
+
+static size_t AES128_Enc(unsigned char *ciphertext,
+                         const unsigned char key[KEY_LENGTH_BYTES],
+                         const unsigned char *plaintext,
+                         size_t plaintext_len)
+{
+    EVP_CIPHER_CTX *ctx = EVP_CIPHER_CTX_new();
+
+    int outlen1 = 0;
+    int outlen2 = 0;
+    EVP_EncryptInit_ex(ctx, EVP_aes_128_ecb(), nullptr, key, nullptr);
+    EVP_CIPHER_CTX_set_padding(ctx, 0);
+    EVP_EncryptUpdate(ctx, ciphertext, &outlen1, plaintext, static_cast<int>(plaintext_len));
+    EVP_EncryptFinal_ex(ctx, ciphertext + outlen1, &outlen2);
+
+    EVP_CIPHER_CTX_free(ctx);
+    return static_cast<size_t>(outlen1 + outlen2);
+}
+
+static size_t AES128_Dec(unsigned char *plaintext,
+                         const unsigned char key[KEY_LENGTH_BYTES],
+                         const unsigned char *ciphertext,
+                         size_t ciphertext_len)
+{
+    EVP_CIPHER_CTX *ctx = EVP_CIPHER_CTX_new();
+
+    int outlen1 = 0;
+    int outlen2 = 0;
+    EVP_DecryptInit_ex(ctx, EVP_aes_128_ecb(), nullptr, key, nullptr);
+    EVP_CIPHER_CTX_set_padding(ctx, 0);
+    EVP_DecryptUpdate(ctx, plaintext, &outlen1, ciphertext, static_cast<int>(ciphertext_len));
+    EVP_DecryptFinal_ex(ctx, plaintext + outlen1, &outlen2);
+
+    EVP_CIPHER_CTX_free(ctx);
+    return static_cast<size_t>(outlen1 + outlen2);
+}
+
+static unsigned int HMAC_SHA256(unsigned char *out,
+                                const unsigned char key[KEY_LENGTH_BYTES],
+                                const unsigned char *message,
+                                size_t message_len)
+{
+    unsigned int out_len = 0;
+    HMAC(EVP_sha256(), key, KEY_LENGTH_BYTES, message, message_len, out, &out_len);
+    return out_len;
+}
 
 static std::string makeMemberId(size_t index)
 {
@@ -315,121 +365,6 @@ static int CMVerify(const unsigned char *msg,
     return memcmp(com, serializedCommitment.data(), com_len) == 0 ? 1 : 0;
 }
 
-static std::string BenchmarkOpenFirstEpoch(const DGTOTP &dgtotp,
-                                           const DGTOTP::Password &structuredPassword,
-                                           long time)
-{
-    const int fixed_epoch = 0;
-    const std::vector<std::string> password = structuredPassword.toVector();
-    const Parameter &params = dgtotp.getParameter();
-    const RA &ra = dgtotp.getRA();
-
-    int per_id_index = -1;
-    for (int j = 0; j < params.getU(); j++)
-    {
-        if (params.getMemberCipher()[j] == password[2])
-        {
-            per_id_index = j;
-            break;
-        }
-    }
-
-    if (per_id_index < 0)
-    {
-        return "";
-    }
-
-    const long pw_sequence = (time - params.getStartTime()) / params.getDeltaS();
-    if (pw_sequence < 0)
-    {
-        return "";
-    }
-
-    unsigned char *cache_tem = static_cast<unsigned char *>(malloc(32));
-    memcpy(cache_tem, password[0].data(), 32);
-
-    for (int i = 0; i < pw_sequence + 1; i++)
-    {
-        unsigned char *temp = Parameter::Sha256(cache_tem, 32);
-        memcpy(cache_tem, temp, 32);
-        free(temp);
-    }
-
-    std::string vp(reinterpret_cast<char *>(cache_tem), 32);
-    std::string vp_hex = Member::byte2hex(cache_tem, 32);
-    free(cache_tem);
-
-    unsigned char *vp_bytes = Parameter::Sha256(vp_hex + password[2] + std::to_string(fixed_epoch));
-    int vp_point = params.getChameHash()->eval(vp_bytes, 32,
-                                               params.getChKey()[per_id_index],
-                                               reinterpret_cast<unsigned char *>(const_cast<char *>(password[1].c_str())),
-                                               password[1].length());
-
-    cache_tem = DGTOTP_PRF::ksAES(params.getG() + "PM" + std::to_string(fixed_epoch), ra.getKsCipher());
-    unsigned int seed = 0;
-    memcpy(&seed, cache_tem, sizeof(unsigned int));
-    std::vector<int> regen_per_table = const_cast<RA &>(ra).Permutation(seed);
-    free(cache_tem);
-
-    int original_member_index = -1;
-    for (int i = 0; i < params.getU(); i++)
-    {
-        if (regen_per_table[i] == per_id_index)
-        {
-            original_member_index = i;
-            break;
-        }
-    }
-
-    if (original_member_index == -1 || vp_point != params.getChHash()[per_id_index])
-    {
-        free(vp_bytes);
-        return "";
-    }
-
-    const std::vector<std::string> &smt = ra.getSMT();
-    if (smt.empty())
-    {
-        free(vp_bytes);
-        return "";
-    }
-
-    TOTP totp;
-    totp.Setup(const_cast<Parameter &>(params));
-    MerkleTrees verifier_tree(smt);
-    if (verifier_tree.Verify(params.getMerkleProof(), smt[fixed_epoch], params.getGpk(), fixed_epoch) == 1 &&
-        totp.Verify(vp, password[0], pw_sequence) == 1)
-    {
-        cache_tem = DGTOTP_PRF::ksAES(params.getG() + "KS" + std::to_string(original_member_index), ra.getKsCipher());
-
-        unsigned char *ke = DGTOTP_PRF::jdkAES("KeyGen" + std::to_string(fixed_epoch), cache_tem);
-        unsigned char *re = DGTOTP_PRF::jdkAES("Rand" + std::to_string(fixed_epoch), cache_tem);
-        unsigned char *id_bytes = RA::ASE_dec(ke,
-                                              reinterpret_cast<unsigned char *>(const_cast<char *>(params.getMemberCipher()[per_id_index].c_str())),
-                                              params.getMemberCipher()[per_id_index].length(),
-                                              re, params.getNonce());
-
-        int ID_plain = Parameter::bytesToInt(id_bytes);
-        const std::vector<std::string> &idlg = ra.getIDLG();
-        std::string opened_id;
-        if (ID_plain >= 0 && static_cast<size_t>(ID_plain) < idlg.size())
-        {
-            opened_id = idlg[ID_plain];
-        }
-
-        free(cache_tem);
-        free(ke);
-        free(re);
-        free(id_bytes);
-        free(vp_bytes);
-
-        return opened_id;
-    }
-
-    free(vp_bytes);
-    return "";
-}
-
 struct TLS13AeadCiphertext
 {
     std::vector<unsigned char> tls_header; // 5 bytes, used as AAD
@@ -467,32 +402,21 @@ TLS13AeadCiphertext TLS13_AES128_GCM_Enc(
     in[payload_len] = content_type;
 
     EVP_CIPHER_CTX *ctx = EVP_CIPHER_CTX_new();
-    if (ctx == nullptr)
-    {
-        throw std::runtime_error("EVP_CIPHER_CTX_new failed");
-    }
 
     int len = 0;
     int n = 0;
-    bool ok =
-        EVP_EncryptInit_ex(ctx, EVP_aes_128_gcm(), nullptr, nullptr, nullptr) == 1 &&
-        EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_GCM_SET_IVLEN, 12, nullptr) == 1 &&
-        EVP_EncryptInit_ex(ctx, nullptr, nullptr, key, iv) == 1 &&
-        EVP_EncryptUpdate(ctx, nullptr, &len, tls_header, 5) == 1 &&
-        EVP_EncryptUpdate(ctx, out.ciphertext.data(), &len, in.data(), static_cast<int>(in.size())) == 1;
+    EVP_EncryptInit_ex(ctx, EVP_aes_128_gcm(), nullptr, nullptr, nullptr);
+    EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_GCM_SET_IVLEN, 12, nullptr);
+    EVP_EncryptInit_ex(ctx, nullptr, nullptr, key, iv);
+    EVP_EncryptUpdate(ctx, nullptr, &len, tls_header, 5);
+    EVP_EncryptUpdate(ctx, out.ciphertext.data(), &len, in.data(), static_cast<int>(in.size()));
 
     n = len;
-    ok = ok &&
-         EVP_EncryptFinal_ex(ctx, out.ciphertext.data() + n, &len) == 1 &&
-         EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_GCM_GET_TAG, 16, out.tag.data()) == 1;
+    EVP_EncryptFinal_ex(ctx, out.ciphertext.data() + n, &len);
+    EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_GCM_GET_TAG, 16, out.tag.data());
     n += len;
 
     EVP_CIPHER_CTX_free(ctx);
-    if (!ok)
-    {
-        throw std::runtime_error("AES-128-GCM encryption failed");
-    }
-
     out.ciphertext.resize(n);
     return out;
 }
@@ -514,37 +438,23 @@ std::vector<unsigned char> TLS13_AES128_GCM_Dec(
     std::vector<unsigned char> out(ciphertext_len);
 
     EVP_CIPHER_CTX *ctx = EVP_CIPHER_CTX_new();
-    if (ctx == nullptr)
-    {
-        throw std::runtime_error("EVP_CIPHER_CTX_new failed");
-    }
 
     int len = 0;
     int n = 0;
-    bool ok =
-        EVP_DecryptInit_ex(ctx, EVP_aes_128_gcm(), nullptr, nullptr, nullptr) == 1 &&
-        EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_GCM_SET_IVLEN, 12, nullptr) == 1 &&
-        EVP_DecryptInit_ex(ctx, nullptr, nullptr, key, iv) == 1 &&
-        EVP_DecryptUpdate(ctx, nullptr, &len, tls_header, 5) == 1 &&
-        EVP_DecryptUpdate(ctx, out.data(), &len, ciphertext, static_cast<int>(ciphertext_len)) == 1 &&
-        EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_GCM_SET_TAG, 16, const_cast<unsigned char *>(tag)) == 1;
+    EVP_DecryptInit_ex(ctx, EVP_aes_128_gcm(), nullptr, nullptr, nullptr);
+    EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_GCM_SET_IVLEN, 12, nullptr);
+    EVP_DecryptInit_ex(ctx, nullptr, nullptr, key, iv);
+    EVP_DecryptUpdate(ctx, nullptr, &len, tls_header, 5);
+    EVP_DecryptUpdate(ctx, out.data(), &len, ciphertext, static_cast<int>(ciphertext_len));
+    EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_GCM_SET_TAG, 16, const_cast<unsigned char *>(tag));
 
     n = len;
-    ok = ok && EVP_DecryptFinal_ex(ctx, out.data() + n, &len) == 1;
+    EVP_DecryptFinal_ex(ctx, out.data() + n, &len);
     n += len;
 
     EVP_CIPHER_CTX_free(ctx);
-    if (!ok || n < 1)
-    {
-        throw std::runtime_error("AES-128-GCM decryption or tag verification failed");
-    }
 
     out.resize(n);
-    if (out.back() != expected_content_type)
-    {
-        throw std::runtime_error("Unexpected TLS content type");
-    }
-
     out.pop_back();
     return out;
 }
@@ -570,6 +480,12 @@ int main()
     RAND_bytes(prf_key, KEY_LENGTH_BYTES);
     unsigned char message[64] = {0};
     RAND_bytes(message, sizeof(message));
+    unsigned char aes128_ciphertext[sizeof(message)] = {0};
+    unsigned char aes128_plaintext[sizeof(message)] = {0};
+    unsigned char hmac_out[EVP_MAX_MD_SIZE] = {0};
+    size_t aes128_ciphertext_len = 0;
+    size_t aes128_plaintext_len = 0;
+    unsigned int hmac_out_len = 0;
 
     ChameleonHash ch;
     unsigned char ch_rk[32] = {0};
@@ -585,8 +501,8 @@ int main()
     BIGNUM *ecc_scalar = BN_bin2bn(ch_rk, 32, nullptr);
     int ch_hash = 0;
 
-    unsigned char mod_base_bytes[32] = {0};
-    unsigned char mod_exponent_bytes[32] = {0};
+    unsigned char mod_base_bytes[MOD_EXP_MODULUS_BYTES] = {0};
+    unsigned char mod_exponent_bytes[MOD_EXP_EXPONENT_BYTES] = {0};
     RAND_bytes(mod_base_bytes, sizeof(mod_base_bytes));
     RAND_bytes(mod_exponent_bytes, sizeof(mod_exponent_bytes));
 
@@ -596,7 +512,12 @@ int main()
     mpz_init(mod_modulus);
     mpz_init(mod_exp_result);
     mpz_init(mod_inv_result);
-    mpz_set_str(mod_modulus, "FFFFFFFF00000000FFFFFFFFFFFFFFFFBCE6FAADA7179E84F3B9CAC2FC632551", 16);
+
+    BIGNUM *modulus_bn = BN_get_rfc3526_prime_3072(nullptr);
+    unsigned char mod_modulus_bytes[MOD_EXP_MODULUS_BYTES] = {0};
+    BN_bn2binpad(modulus_bn, mod_modulus_bytes, sizeof(mod_modulus_bytes));
+    BN_free(modulus_bn);
+    mpz_import(mod_modulus, sizeof(mod_modulus_bytes), 1, 1, 0, 0, mod_modulus_bytes);
     mpz_import(mod_base, sizeof(mod_base_bytes), 1, 1, 0, 0, mod_base_bytes);
     mpz_mod(mod_base, mod_base, mod_modulus);
     if (mpz_sgn(mod_base) == 0)
@@ -653,20 +574,95 @@ int main()
     fprintf(fp, "TLS_AES_128_GCM_SHA256 AEAD params: TLS header = 5 bytes, content type = 1 byte, GCM tag = 16 bytes, overhead = 22 bytes, payload = %zu bytes\n",
             tls13_payload_len);
 
-    MEASURE("AEADEnc..", 1, {
+    MEASURE("AEe..", 1, {
         tls13_ciphertext = TLS13_AES128_GCM_Enc(
             tls13_payload.data(), tls13_payload.size(), tls13_content_type,
             tls13_header, tls13_key, tls13_iv);
     });
-    save_result(fp, "AEADEnc", t, NTESTS);
+    save_result(fp, "AEe", t, NTESTS);
 
-    MEASURE("AEADDec..", 1, {
+    MEASURE("AEd..", 1, {
         tls13_plaintext = TLS13_AES128_GCM_Dec(
             tls13_ciphertext.ciphertext.data(), tls13_ciphertext.ciphertext.size(),
             tls13_ciphertext.tag.data(), tls13_header, tls13_key, tls13_iv,
             tls13_content_type);
     });
-    save_result(fp, "AEADDec", t, NTESTS);
+    save_result(fp, "AEd", t, NTESTS);
+
+    MEASURE("AESe..", 1, {
+        aes128_ciphertext_len = AES128_Enc(aes128_ciphertext, prf_key, message, sizeof(message));
+    });
+    save_result(fp, "AESe", t, NTESTS);
+
+    MEASURE("AESd..", 1, {
+        aes128_plaintext_len = AES128_Dec(aes128_plaintext, prf_key, aes128_ciphertext, aes128_ciphertext_len);
+    });
+    save_result(fp, "AESd", t, NTESTS);
+
+    MEASURE("HMAC..", 1, {
+        hmac_out_len = HMAC_SHA256(hmac_out, prf_key, message, sizeof(message));
+    });
+    save_result(fp, "HMAC", t, NTESTS);
+
+    MEASURE("prf1..", 1, prf1(prf_out, KEY_LENGTH_BYTES, prf_key, KEY_LENGTH_BYTES, message, sizeof(message)));
+    save_result(fp, "prf1", t, NTESTS);
+
+    MEASURE("SHA256..", 1, {
+        unsigned char *sha256_out = Parameter::Sha256(message, sizeof(message));
+        free(sha256_out);
+    });
+    save_result(fp, "SHA256", t, NTESTS);
+
+    MEASURE("SM_G..", 1, {
+        EC_POINT_mul(ch.getGroup(), ecc_result, ecc_scalar, nullptr, nullptr, nullptr);
+    });
+    save_result(fp, "SM_G", t, NTESTS);
+
+    MEASURE("SM_P..", 1, {
+        EC_POINT_mul(ch.getGroup(), ecc_result, nullptr, ch.getPk(), ecc_scalar, nullptr);
+    });
+    save_result(fp, "SM_P", t, NTESTS);
+
+    MEASURE("Exp..", 1, {
+        mpz_powm(mod_exp_result, mod_base, mod_exponent, mod_modulus);
+    });
+    save_result(fp, "Exp", t, NTESTS);
+
+    MEASURE("Inv..", 1, {
+        mpz_invert(mod_inv_result, mod_base, mod_modulus);
+    });
+    save_result(fp, "Inv", t, NTESTS);
+
+    std::vector<ChameleonHash> chVec(NTESTS);
+
+    MEASURE("CHs..", 1, chVec[i].Setup(ch_rk));
+    save_result(fp, "CHs", t, NTESTS);
+
+    MEASURE("CHe..", 1, {
+        ch_hash = chVec[i].eval(ch_msg1, sizeof(ch_msg1), chVec[i].getPk(), ch_rand, sizeof(ch_rand));
+    });
+    save_result(fp, "CHe", t, NTESTS);
+
+    MEASURE("CHc..", 1, {
+        unsigned char *ch_collision = chVec[i].Collision(ch_msg1, sizeof(ch_msg1),
+                                                         ch_rand, sizeof(ch_rand),
+                                                         ch_msg2, sizeof(ch_msg2),
+                                                         chVec[i].getSk());
+        free(ch_collision);
+    });
+    save_result(fp, "CHc", t, NTESTS);
+
+    DGTOTP dgtotp;
+    MEASURE("RASetup..", 1, dgtotp.RASetup(securityParameter, "dgtotp", groupMemberCount, sharedStartTime, endTime, verificationPeriod, passwordGenerationPeriod));
+    save_result(fp, "RASetup", t, NTESTS);
+
+    unsigned int permutation_seed = 0;
+    RAND_bytes(reinterpret_cast<unsigned char *>(&permutation_seed), sizeof(permutation_seed));
+    std::vector<int> permutation_result;
+    MEASURE("PM..", 1, {
+        permutation_result = const_cast<RA &>(dgtotp.getRA()).Permutation(permutation_seed);
+    });
+    save_result(fp, "PM", t, NTESTS);
 
     std::vector<DGTOTP> dgtotpVec(SG_NUM);
     std::vector<unsigned char *> setupSkSke(SG_NUM, nullptr);
@@ -681,49 +677,6 @@ int main()
               verificationPeriod, passwordGenerationPeriod, dgtotpVec, setupSkSke);
     });
     save_result(fp, "Setup", t, NTESTS);
-
-    MEASURE("prf1..", 1, prf1(prf_out, KEY_LENGTH_BYTES, prf_key, KEY_LENGTH_BYTES, message, 64));
-    save_result(fp, "prf1", t, NTESTS);
-
-    MEASURE("SHA256..", 1, {
-        unsigned char *sha256_out = Parameter::Sha256(message, 64);
-        free(sha256_out);
-    });
-    save_result(fp, "SHA256", t, NTESTS);
-
-    MEASURE("ECM..", 1, {
-        EC_POINT_mul(ch.getGroup(), ecc_result, nullptr, ch.getPk(), ecc_scalar, nullptr);
-    });
-    save_result(fp, "ECM", t, NTESTS);
-
-    MEASURE("Exp..", 1, {
-        mpz_powm(mod_exp_result, mod_base, mod_exponent, mod_modulus);
-    });
-    save_result(fp, "Exp", t, NTESTS);
-
-    MEASURE("Inv..", 1, {
-        mpz_invert(mod_inv_result, mod_base, mod_modulus);
-    });
-    save_result(fp, "Inv", t, NTESTS);
-
-    std::vector<ChameleonHash> chVec(NTESTS);
-
-    MEASURE("CHSetup..", 1, chVec[i].Setup(ch_rk));
-    save_result(fp, "CHSetup", t, NTESTS);
-
-    MEASURE("CHEval..", 1, {
-        ch_hash = chVec[i].eval(ch_msg1, sizeof(ch_msg1), chVec[i].getPk(), ch_rand, sizeof(ch_rand));
-    });
-    save_result(fp, "CHEval", t, NTESTS);
-
-    MEASURE("CHColl..", 1, {
-        unsigned char *ch_collision = chVec[i].Collision(ch_msg1, sizeof(ch_msg1),
-                                                         ch_rand, sizeof(ch_rand),
-                                                         ch_msg2, sizeof(ch_msg2),
-                                                         chVec[i].getSk());
-        free(ch_collision);
-    });
-    save_result(fp, "CHColl", t, NTESTS);
 
     std::vector<std::string> memberIds(NTESTS);
     std::vector<int> memberSGIds(NTESTS);
@@ -843,7 +796,7 @@ int main()
     std::vector<std::string> openedIds(NTESTS);
 
     MEASURE("Open..", 1, {
-        openedIds[i] = BenchmarkOpenFirstEpoch(dgtotpVec[memberSGIds[i]], passwords[i], protocolTime);
+        openedIds[i] = dgtotpVec[memberSGIds[i]].Open(passwords[i], protocolTime);
     });
     save_result(fp, "Open", t, NTESTS);
     const size_t openEmptyCount = std::count(openedIds.begin(), openedIds.end(), "");

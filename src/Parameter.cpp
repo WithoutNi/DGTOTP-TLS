@@ -87,15 +87,17 @@ unsigned char *Parameter::Sha256(const std::string &message)
     return Sha256((unsigned char *)message.c_str(), message.length());
 }
 
-int Parameter::bytesToInt(unsigned char *bytes)
+int Parameter::bytesToInt(unsigned char *bytes, size_t length)
 {
     if (!bytes)
     {
         return -1;
     }
-    int i;
-    i = (int)((bytes[0] & 0xff) | ((bytes[1] & 0xff) << 8) |
-              ((bytes[2] & 0xff) << 16) | ((bytes[3] & 0xff) << 24));
+    int i = 0;
+    for (size_t j = 0; j < length && j < 4; ++j)
+    {
+        i |= (bytes[j] & 0xFF) << (8 * j);
+    }
     return i;
 }
 

@@ -58,51 +58,27 @@ pw_CM CMGen(const std::vector<std::string> &pw,
 
 void prf1(unsigned char *out, size_t outlen, unsigned char *ki, size_t key_len, const unsigned char *msg, size_t msg_len)
 {
-    // Compute HMAC-SHA256
-    unsigned char hmac_result[SHA256_DIGEST_LENGTH];
-    unsigned int hmac_len;
+    EVP_CIPHER_CTX *ctx = EVP_CIPHER_CTX_new();
+    int outlen1 = 0;
+    int outlen2 = 0;
+    std::vector<unsigned char> encrypted(msg_len + EVP_MAX_BLOCK_LENGTH);
 
-    HMAC(EVP_sha256(),
-         ki, key_len,
-         msg, msg_len,
-         hmac_result, &hmac_len);
+    EVP_EncryptInit_ex(ctx, EVP_aes_128_ecb(), nullptr, ki, nullptr);
+    EVP_EncryptUpdate(ctx, encrypted.data(), &outlen1, msg, static_cast<int>(msg_len));
+    EVP_EncryptFinal_ex(ctx, encrypted.data() + outlen1, &outlen2);
+    EVP_CIPHER_CTX_free(ctx);
 
-    memcpy(out, hmac_result, outlen);
-}
+    const size_t encrypted_len = static_cast<size_t>(outlen1 + outlen2);
+    if (outlen > encrypted_len)
+    {
+        throw std::invalid_argument("prf1 output length exceeds AES ciphertext length");
+    }
 
-void prf(unsigned char *out, size_t outlen, unsigned char *ki, size_t key_len, int index)
-{
-    // Prepare HMAC input data (convert integer j to byte sequence)
-    unsigned char input_data[sizeof(int)];
-    memcpy(input_data, &index, sizeof(int));
-
-    // Compute HMAC-SHA256
-    unsigned char hmac_result[SHA256_DIGEST_LENGTH];
-    unsigned int hmac_len;
-
-    HMAC(EVP_sha256(),
-         ki, key_len,
-         input_data, sizeof(int),
-         hmac_result, &hmac_len);
-
-    memcpy(out, hmac_result, outlen);
+    memcpy(out, encrypted.data(), outlen);
 }
 
 int SGMap(const unsigned char *subgroup_key, size_t key_len, const std::string &id)
 {
-    if (subgroup_key == nullptr)
-    {
-        throw std::invalid_argument("Null subgroup key passed to SGMap");
-    }
-    if (key_len == 0)
-    {
-        throw std::invalid_argument("Empty subgroup key passed to SGMap");
-    }
-    if (id.empty())
-    {
-        throw std::invalid_argument("Empty identity passed to SGMap");
-    }
-
     unsigned char sg_id[SG_LENGTH_BYTES];
     prf1(sg_id, SG_LENGTH_BYTES, const_cast<unsigned char *>(subgroup_key), key_len,
          reinterpret_cast<const unsigned char *>(id.data()), id.size());
@@ -144,41 +120,6 @@ std::string bytesToHex(const unsigned char *data, size_t length, bool uppercase)
     return hex_string;
 }
 
-std::vector<unsigned char> HexToBytes(const unsigned char *hex_data, size_t length)
-{
-    if (length % 2 != 0)
-    {
-        throw std::invalid_argument("Hex data length must be even");
-    }
-
-    std::vector<unsigned char> result;
-    result.reserve(length / 2);
-
-    for (size_t i = 0; i < length; i += 2)
-    {
-        // Convert two hex characters to one byte
-        unsigned char high_char = hex_data[i];
-        unsigned char low_char = hex_data[i + 1];
-
-        // Convert hex character to numeric value
-        auto hexCharToValue = [](unsigned char c) -> unsigned char
-        {
-            if (c >= '0' && c <= '9')
-                return c - '0';
-            if (c >= 'A' && c <= 'F')
-                return c - 'A' + 10;
-            if (c >= 'a' && c <= 'f')
-                return c - 'a' + 10;
-            throw std::invalid_argument("Invalid hex character");
-        };
-
-        unsigned char byte_value = (hexCharToValue(high_char) << 4) | hexCharToValue(low_char);
-        result.push_back(byte_value);
-    }
-
-    return result;
-}
-
 void printBytes(const unsigned char *data, size_t len)
 {
     if (!data)
@@ -203,29 +144,6 @@ std::string string_to_hex(const std::string &input)
         ss << std::setw(2) << static_cast<unsigned int>(static_cast<unsigned char>(c));
     }
 
-    return ss.str();
-}
-
-size_t bytesToInt(const unsigned char *bytes)
-{
-    if (bytes == nullptr)
-    {
-        throw std::invalid_argument("Null pointer passed to bytesToInt");
-    }
-
-    int value = 0;
-    value |= (bytes[0] & 0xFF);
-    value |= (bytes[1] & 0xFF) << 8;
-    value |= (bytes[2] & 0xFF) << 16;
-    value |= (bytes[3] & 0xFF) << 24;
-
-    return (size_t)value;
-}
-
-std::string intToHex(int value, int width)
-{
-    std::stringstream ss;
-    ss << std::hex << std::setw(width) << std::setfill('0') << value;
     return ss.str();
 }
 

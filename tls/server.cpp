@@ -261,7 +261,6 @@ int main()
                 const long joinTime = getCurrentTimeMillis();
                 dgtotpVec[selectedSGId].PInit(memberId);
                 DGTOTP::JoinReceipt joinReceipt = dgtotpVec[selectedSGId].JoinAndExportReceipt(memberId, joinTime);
-                size_t alphaID = bytesToInt(joinReceipt.alpha_bytes.data());
                 Skey SkeyID;
                 SkeyID.SGId = selectedSGId;
                 SkeyID.key.resize(KEY_LENGTH_BYTES);

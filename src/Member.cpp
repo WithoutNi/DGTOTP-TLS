@@ -189,11 +189,11 @@ std::vector<std::string> Member::PwGen(std::vector<unsigned char *> &Ax, const s
     params.getChameHash()->Setup(cache_32);
     unsigned char *r = params.getChameHash()->Collision(dvp, 32, rd, 32, verify_point, 32, params.getChameHash()->getSk());
     memcpy(rand, r, 32);
-    int hash_vp = params.getChameHash()->eval(verify_point, 32, params.getChameHash()->getPk(), rand, 32);
-    // if (hash_vp == params.getChameHash()->eval(dvp, 32, params.getChameHash()->getPk(), rd, 32))
-    // {
-    //     printf("\nCollision success");
-    // }
+    //  int hash_vp = params.getChameHash()->eval(verify_point, 32, params.getChameHash()->getPk(), rand, 32);
+    //  if (hash_vp == params.getChameHash()->eval(dvp, 32, params.getChameHash()->getPk(), rd, 32))
+    //  {
+    //      printf("\nCollision success");
+    //  }
 
     // Byte array to string
     DGTOTP_pw[1] = std::string(reinterpret_cast<char *>(rand), 32);

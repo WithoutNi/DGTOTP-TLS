@@ -157,16 +157,6 @@ void RA::RASetup(int security_parameter, std::string group_name, int group_membe
     free(key);
 }
 
-unsigned char *RA::intToBytes(int i)
-{
-    unsigned char *bytes = (unsigned char *)malloc(4);
-    bytes[0] = (unsigned char)(i & 0xff);
-    bytes[1] = (unsigned char)((i >> 8) & 0xff);
-    bytes[2] = (unsigned char)((i >> 16) & 0xff);
-    bytes[3] = (unsigned char)((i >> 24) & 0xff);
-    return bytes;
-}
-
 std::vector<int> RA::Permutation(unsigned int random_seed)
 {
     std::vector<int> list(U);
@@ -253,7 +243,7 @@ void RA::GMUpdate(long time, Parameter &params)
         }
 
         // ASEe
-        unsigned char *id_bytes = intToBytes(i);
+        unsigned char *id_bytes = Parameter::intToBytes(i);
         if (!id_bytes)
         {
             printf("intToBytes failed for member %d\n", i);
@@ -328,31 +318,18 @@ void RA::GMUpdate(long time, Parameter &params)
 
 std::string RA::Open(const std::vector<std::string> &password, long time, Parameter &params)
 {
-    // Get permuted MPI Id index
-    per_id_index = 0;
-    for (int j = 0; j < U; j++)
-    {
-        if (params.getMemberCipher()[j] == password[2])
-        {
-            per_id_index = j;
-            break;
-        }
-    }
+    // Get current verification epoch
+    verify_epoch = (int)((time - params.getStartTime()) / params.getDeltaE());
+    current_verify_epoch = verify_epoch;
 
-    verify_epoch = (int)((time - START_TIME) / params.getDeltaE());
-    current_verify_epoch = (int)((std::time(nullptr) * 1000 - params.getStartTime()) / params.getDeltaE());
-
-    if (verify_epoch != current_verify_epoch)
-    {
-        return "";
-    }
-
-    long pw_sequence = (time - verify_epoch * params.getDeltaE() - START_TIME) / params.getDeltaS();
+    // Calculate password sequence number
+    int pw_sequence = (time - current_verify_epoch * params.getDeltaE() - params.getStartTime()) / params.getDeltaS();
 
     // Get TOTP verification point (byte array)
     unsigned char *cache_tem = static_cast<unsigned char *>(malloc(32));
     memcpy(cache_tem, password[0].data(), 32);
 
+    // Calculate verification point
     for (int i = 0; i < pw_sequence + 1; i++)
     {
         unsigned char *temp = Parameter::Sha256(cache_tem, 32);
@@ -363,17 +340,69 @@ std::string RA::Open(const std::vector<std::string> &password, long time, Parame
     // TOTP verification point
     std::string vp(reinterpret_cast<char *>(cache_tem), 32);
     std::string vp_hex = Member::byte2hex(cache_tem, 32);
-    free(cache_tem);
 
-    unsigned char *vp_bytes = Parameter::Sha256(vp_hex + password[2] + std::to_string(verify_epoch));
+    // Get permuted MPI Id index
+    per_id_index = 0;
+    for (int j = 0; j < params.getU(); j++)
+    {
+        if (params.getMemberCipher()[j] == password[2])
+        {
+            per_id_index = j;
+        }
+    }
 
-    // "ISO-8859-1" string -> byte array chameleon hash eval
-    int vp_point = params.getChameHash()->eval(vp_bytes, 32,
-                                               params.getChKey()[per_id_index],
+    // Calculate chameleon hash value
+    unsigned char *vp_bytes = Parameter::Sha256(vp_hex + password[2] + std::to_string(current_verify_epoch));
+    int vp_point = params.getChameHash()->eval(vp_bytes, 32, params.getChKey()[per_id_index],
                                                (unsigned char *)password[1].c_str(), password[1].length());
 
+    // Verify chameleon hash value
+    if (vp_point != params.getChHash()[per_id_index])
+    {
+        std::cout << "ChameleonHash eval Error!" << std::endl;
+        std::cout << "In open, CH_hash[" << per_id_index << "]= " << params.getChHash()[per_id_index] << std::endl;
+        free(cache_tem);
+        free(vp_bytes);
+        return "";
+    }
+
+    std::vector<std::string> ch_hash(params.getU());
+    for (int i = 0; i < params.getU(); i++)
+    {
+        ch_hash[i] = std::to_string(params.getChHash()[i]);
+    }
+    MerkleTrees merkle_tree(ch_hash);
+    merkle_tree.merkle_tree();
+    std::string verifier_root = merkle_tree.getRoot();
+
+    // TOTP Verify
+    TOTP totp;
+    totp.Setup(params);
+    int res1 = totp.Verify(vp, password[0], pw_sequence);
+    if (res1 != 1)
+    {
+        std::cout << "TOTP verify Error!" << std::endl;
+        std::cout << "TOTP verify result: " << res1 << std::endl;
+        free(cache_tem);
+        free(vp_bytes);
+        return "";
+    }
+
+    // Merkle tree Verify
+    int res2 = merkle_tree.Verify(params.getMerkleProof(), verifier_root, params.getGpk(), current_verify_epoch);
+    if (res2 != 1)
+    {
+        std::cout << "merkle trees verify Error!" << std::endl;
+        std::cout << "merkle trees verify result: " << res2 << std::endl;
+        free(cache_tem);
+        free(vp_bytes);
+        return "";
+    }
+
+    free(cache_tem);
+
     // Permutation
-    cache_tem = DGTOTP_PRF::ksAES(G + "PM" + std::to_string(verify_epoch), ks_cipher);
+    cache_tem = DGTOTP_PRF::ksAES(G + "PM" + std::to_string(current_verify_epoch), ks_cipher);
     unsigned int seed = 0;
     memcpy(&seed, cache_tem, sizeof(unsigned int));
     std::vector<int> regen_per_table = Permutation(seed);
@@ -389,39 +418,32 @@ std::string RA::Open(const std::vector<std::string> &password, long time, Parame
         }
     }
 
-    if (original_member_index == -1 || vp_point != params.getChHash()[per_id_index])
+    if (original_member_index == -1)
     {
         free(vp_bytes);
         return "";
     }
 
-    // TOTP.verify && Merkle.verify
-    TOTP totp;
-    totp.Setup(params);
-    MerkleTrees verifier_tree(SMT);
-    if (verifier_tree.Verify(params.getMerkleProof(), SMT[verify_epoch], params.getGpk(), verify_epoch) == 1 &&
-        totp.Verify(vp, password[0], pw_sequence) == 1)
+    cache_tem = DGTOTP_PRF::ksAES(G + "KS" + std::to_string(original_member_index), ks_cipher);
+
+    unsigned char *ke = DGTOTP_PRF::jdkAES("KeyGen" + std::to_string(current_verify_epoch), cache_tem);
+    unsigned char *re = DGTOTP_PRF::jdkAES("Rand" + std::to_string(current_verify_epoch), cache_tem);
+
+    // Decrypt identity ciphertext
+    unsigned char *id_bytes = ASE_dec(ke, (unsigned char *)params.getMemberCipher()[per_id_index].c_str(), params.getMemberCipher()[per_id_index].length(), re, params.getNonce());
+
+    int ID_plain = Parameter::bytesToInt(id_bytes);
+
+    free(cache_tem);
+    free(ke);
+    free(re);
+    free(id_bytes);
+    free(vp_bytes);
+
+    if (ID_plain >= 0 && static_cast<size_t>(ID_plain) < IDLG.size())
     {
-
-        cache_tem = DGTOTP_PRF::ksAES(G + "KS" + std::to_string(original_member_index), ks_cipher);
-
-        unsigned char *ke = DGTOTP_PRF::jdkAES("KeyGen" + std::to_string(verify_epoch), cache_tem);
-        unsigned char *re = DGTOTP_PRF::jdkAES("Rand" + std::to_string(verify_epoch), cache_tem);
-
-        // Decrypt identity ciphertext
-        unsigned char *id_bytes = ASE_dec(ke, (unsigned char *)params.getMemberCipher()[per_id_index].c_str(), params.getMemberCipher()[per_id_index].length(), re, params.getNonce());
-
-        int ID_plain = Parameter::bytesToInt(id_bytes);
-
-        free(cache_tem);
-        free(ke);
-        free(re);
-        free(id_bytes);
-        free(vp_bytes);
-
         return IDLG[ID_plain];
     }
-    free(vp_bytes);
 
     return "";
 }
@@ -547,7 +569,7 @@ std::vector<unsigned char *> RA::Join(EVP_CIPHER_CTX *ks, const std::string &ID,
     Ax[0] = DGTOTP_PRF::ksAES(G + "KS" + std::to_string(alpha), ks_cipher);
 
     // alpha ID index byte array
-    Ax[1] = intToBytes(alpha);
+    Ax[1] = Parameter::intToBytes(alpha);
     alpha++;
 
     return Ax;

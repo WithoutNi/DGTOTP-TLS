@@ -39,6 +39,7 @@ SSL_CTX *create_context()
     return ctx;
 }
 
+// Configures standard one-way TLS context
 void configure_context(SSL_CTX *ctx)
 {
     SSL_CTX_set_min_proto_version(ctx, TLS1_3_VERSION);
@@ -56,6 +57,38 @@ void configure_context(SSL_CTX *ctx)
     }
 
     if (SSL_CTX_use_PrivateKey_file(ctx, "server.key", SSL_FILETYPE_PEM) <= 0)
+    {
+        ERR_print_errors_fp(stderr);
+        exit(EXIT_FAILURE);
+    }
+}
+
+// Configures mutual authentication (Two-Way TLS) context
+void configure_mutual_auth_context(SSL_CTX *ctx)
+{
+    SSL_CTX_set_min_proto_version(ctx, TLS1_3_VERSION);
+    SSL_CTX_set_num_tickets(ctx, 0);
+    if (!SSL_CTX_set_ciphersuites(ctx, "TLS_AES_128_GCM_SHA256"))
+    {
+        fprintf(stderr, "Failed to set ciphersuites\n");
+        exit(EXIT_FAILURE);
+    }
+
+    if (SSL_CTX_use_certificate_file(ctx, "server.crt", SSL_FILETYPE_PEM) <= 0)
+    {
+        ERR_print_errors_fp(stderr);
+        exit(EXIT_FAILURE);
+    }
+
+    if (SSL_CTX_use_PrivateKey_file(ctx, "server.key", SSL_FILETYPE_PEM) <= 0)
+    {
+        ERR_print_errors_fp(stderr);
+        exit(EXIT_FAILURE);
+    }
+
+    // Enable Mutual Authentication
+    SSL_CTX_set_verify(ctx, SSL_VERIFY_PEER | SSL_VERIFY_FAIL_IF_NO_PEER_CERT, NULL);
+    if (SSL_CTX_load_verify_locations(ctx, "ca.crt", NULL) <= 0)
     {
         ERR_print_errors_fp(stderr);
         exit(EXIT_FAILURE);
@@ -206,7 +239,7 @@ int main()
     long currentTime = getCurrentTimeMillis();
     std::cout << "current time: " << currentTime << std::endl;
 
-    // Create SSL context
+    // Create SSL context for client-server One-Way TLS connection
     ctx = create_context();
     configure_context(ctx);
 
@@ -314,9 +347,9 @@ int main()
     std::cout << "********************************" << std::endl;
     std::cout << std::endl;
 
-    // Create SSL context
+    // Create SSL context for verifier-server Mutual Auth TLS connection
     ctx1 = create_context();
-    configure_context(ctx1);
+    configure_mutual_auth_context(ctx1);
 
     // Create TCP socket
     verifier_sockfd = socket(AF_INET, SOCK_STREAM, 0);

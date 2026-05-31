@@ -172,6 +172,14 @@ int main()
     // Create SSL context
     ctx = create_context();
     SSL_CTX_set_min_proto_version(ctx, TLS1_3_VERSION);
+
+    // Verify server certificate using CA
+    SSL_CTX_set_verify(ctx, SSL_VERIFY_PEER, NULL);
+    if (SSL_CTX_load_verify_locations(ctx, "ca.crt", NULL) <= 0)
+    {
+        ERR_print_errors_fp(stderr);
+    }
+
     // Create TCP connection (connect to server)
     server_sockfd = socket(AF_INET, SOCK_STREAM, 0);
     memset(&server_addr, 0, sizeof(server_addr));
@@ -282,6 +290,13 @@ int main()
     // Create SSL context
     ctx1 = create_context();
     SSL_CTX_set_min_proto_version(ctx1, TLS1_3_VERSION);
+
+    // Verify verifier certificate using CA
+    SSL_CTX_set_verify(ctx1, SSL_VERIFY_PEER, NULL);
+    if (SSL_CTX_load_verify_locations(ctx1, "ca.crt", NULL) <= 0)
+    {
+        ERR_print_errors_fp(stderr);
+    }
 
     // Create TCP connection (connect to Verifier)
     verifier_sockfd = socket(AF_INET, SOCK_STREAM, 0);

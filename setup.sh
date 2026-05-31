@@ -75,15 +75,39 @@ if [ -f "server.key" ] && [ -f "server.crt" ]; then
     fi
 fi
 
-# 生成 ECDSA 私钥，使用 secp256r1 / prime256v1 曲线
+# Generate CA private key
+openssl ecparam -name prime256v1 -genkey -noout -out ca.key
+
+# Generate self-signed CA certificate
+openssl req -new -x509 -key ca.key -out ca.crt -days 3650 \
+    -subj "/C=CN/ST=Beijing/L=Beijing/O=DGTOTP-TLS/CN=DGTOTP_Root_CA"
+
+# Generate Server private key
 openssl ecparam -name prime256v1 -genkey -noout -out server.key
 
-# 生成自签名 ECDSA 证书
-openssl req -new -x509 -key server.key -out server.crt -days 365 \
-    -subj "/C=CN/ST=Beijing/L=Beijing/O=DGTOTP-TLS/CN=localhost" \
-    -addext "subjectAltName = DNS:localhost, IP:127.0.0.1"
+# Generate Server Certificate Signing Request (CSR)
+openssl req -new -key server.key -out server.csr \
+    -subj "/C=CN/ST=Beijing/L=Beijing/O=DGTOTP-TLS/CN=localhost"
 
-print_info "证书生成完成：server.key 和 server.crt"
+# Sign Server CSR using the CA certificate and key (includes localhost/127.0.0.1 SAN)
+openssl x509 -req -in server.csr -CA ca.crt -CAkey ca.key -CAcreateserial -out server.crt -days 365 \
+    -extfile <(printf "subjectAltName=DNS:localhost,IP:127.0.0.1")
+
+# Generate Verifier private key
+openssl ecparam -name prime256v1 -genkey -noout -out verifier.key
+
+# Generate Verifier Certificate Signing Request (CSR)
+openssl req -new -key verifier.key -out verifier.csr \
+    -subj "/C=CN/ST=Beijing/L=Beijing/O=DGTOTP-TLS/CN=DGTOTP_Verifier"
+
+# Sign Verifier CSR using the CA certificate and key (adding SAN)
+openssl x509 -req -in verifier.csr -CA ca.crt -CAkey ca.key -CAcreateserial -out verifier.crt -days 365 \
+    -extfile <(printf "subjectAltName=DNS:localhost,IP:127.0.0.1")
+
+# Sign Verifier CSR using the CA certificate and key
+openssl x509 -req -in verifier.csr -CA ca.crt -CAkey ca.key -CAcreateserial -out verifier.crt -days 365
+
+rm server.csr verifier.csr ca.srl
 
 cd ..
 

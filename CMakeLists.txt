@@ -139,3 +139,11 @@ target_link_libraries(benchmark
     ${GMP_LIBRARIES}
     ${CRYPTOPP_LIBRARIES}
 )
+
+add_executable(tls_benchmark test/tls_benchmark.cpp test/cycles.c)
+target_link_libraries(tls_benchmark
+    dgtotp_lib
+    ${OPENSSL_LIBRARIES}
+    ${GMP_LIBRARIES}
+    ${CRYPTOPP_LIBRARIES}
+)

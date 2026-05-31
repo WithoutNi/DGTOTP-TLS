@@ -231,13 +231,14 @@ void configure_server_context(SSL_CTX *ctx)
         exit(EXIT_FAILURE);
     }
 
-    if (SSL_CTX_use_certificate_file(ctx, "server.crt", SSL_FILETYPE_PEM) <= 0)
+    // Using verifier.crt and verifier.key for Client-Verifier connection
+    if (SSL_CTX_use_certificate_file(ctx, "verifier.crt", SSL_FILETYPE_PEM) <= 0)
     {
         ERR_print_errors_fp(stderr);
         exit(EXIT_FAILURE);
     }
 
-    if (SSL_CTX_use_PrivateKey_file(ctx, "server.key", SSL_FILETYPE_PEM) <= 0)
+    if (SSL_CTX_use_PrivateKey_file(ctx, "verifier.key", SSL_FILETYPE_PEM) <= 0)
     {
         ERR_print_errors_fp(stderr);
         exit(EXIT_FAILURE);
@@ -246,7 +247,7 @@ void configure_server_context(SSL_CTX *ctx)
 
 int main()
 {
-    // Part 1: Act as server to accept Client connection
+    // Part 1: Act as server to accept Client connection (One-Way TLS)
     SSL_CTX *server_ctx = create_server_context();
     configure_server_context(server_ctx);
 
@@ -331,9 +332,29 @@ int main()
         return 1;
     }
 
-    // Part 2: Act as client to connect to Server
+    // Part 2: Act as client to connect to Server (Mutual Authentication TLS)
     SSL_CTX *client_ctx = create_client_context();
     SSL_CTX_set_min_proto_version(client_ctx, TLS1_3_VERSION);
+
+    // Load Client Certificates for Mutual Authentication
+    if (SSL_CTX_use_certificate_file(client_ctx, "verifier.crt", SSL_FILETYPE_PEM) <= 0)
+    {
+        ERR_print_errors_fp(stderr);
+        exit(EXIT_FAILURE);
+    }
+    if (SSL_CTX_use_PrivateKey_file(client_ctx, "verifier.key", SSL_FILETYPE_PEM) <= 0)
+    {
+        ERR_print_errors_fp(stderr);
+        exit(EXIT_FAILURE);
+    }
+
+    // Load CA Certificate to verify Server certificate
+    SSL_CTX_set_verify(client_ctx, SSL_VERIFY_PEER, NULL);
+    if (SSL_CTX_load_verify_locations(client_ctx, "ca.crt", NULL) <= 0)
+    {
+        ERR_print_errors_fp(stderr);
+        exit(EXIT_FAILURE);
+    }
 
     struct sockaddr_in server_addr2;
     memset(&server_addr2, 0, sizeof(server_addr2));

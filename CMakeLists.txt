@@ -5,6 +5,8 @@ project(DGTOTP-TLS VERSION 1.0)
 set(CMAKE_CXX_STANDARD 11)
 set(CMAKE_CXX_STANDARD_REQUIRED True)
 
+find_package(Threads REQUIRED)
+
 # Find OpenSSL
 find_package(OpenSSL REQUIRED)
 
@@ -146,4 +148,5 @@ target_link_libraries(tls_benchmark
     ${OPENSSL_LIBRARIES}
     ${GMP_LIBRARIES}
     ${CRYPTOPP_LIBRARIES}
+    Threads::Threads
 )

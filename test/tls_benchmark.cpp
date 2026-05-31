@@ -23,7 +23,7 @@
 
 #define PORT_ONE_WAY 4440
 #define PORT_TWO_WAY 4441
-#define NTESTS 10
+#define NTESTS 1000
 
 // Certificate path macros
 #define CA_CERT "ca.crt"
@@ -32,36 +32,15 @@
 #define VERIFIER_CERT "verifier.crt"
 #define VERIFIER_KEY "verifier.key"
 
-// ==========================================
-// Benchmark measurement macros from benchmark.cpp
-// ==========================================
+// Structures to pass server statistics back to main thread
+struct HandshakeSample
+{
+    unsigned long long cycles;
+    double time_us;
+};
 
-#define MEASURE_GENERIC(TEXT, MUL, FNCALL, CORR)                                                                         \
-    printf("%-15s", TEXT);                                                                                               \
-    clock_gettime(CLOCK_PROCESS_CPUTIME_ID, &start);                                                                     \
-    for (i = 0; i < NTESTS; i++)                                                                                         \
-    {                                                                                                                    \
-        t[i] = cpucycles() / CORR;                                                                                       \
-        FNCALL;                                                                                                          \
-    }                                                                                                                    \
-    t[NTESTS] = cpucycles();                                                                                             \
-    clock_gettime(CLOCK_PROCESS_CPUTIME_ID, &stop);                                                                      \
-    result = ((double)(stop.tv_sec - start.tv_sec) * 1e6 + (double)(stop.tv_nsec - start.tv_nsec) / 1e3) / (double)CORR; \
-    display_result(result, t, NTESTS, MUL);
-
-#define MEASURT(TEXT, MUL, FNCALL)         \
-    MEASURE_GENERIC(                       \
-        TEXT, MUL,                         \
-        do {                               \
-            for (int j = 0; j < 1000; j++) \
-            {                              \
-                FNCALL;                    \
-            }                              \
-        } while (0);                       \
-        ,                                  \
-        1000);
-
-#define MEASURE(TEXT, MUL, FNCALL) MEASURE_GENERIC(TEXT, MUL, FNCALL, 1)
+static HandshakeSample server_samples[NTESTS];
+static std::atomic<int> server_sample_idx(0);
 
 // ==========================================
 // Auxiliary statistical functions (reused from benchmark.cpp)
@@ -116,6 +95,26 @@ static void display_result(double result, unsigned long long *l, size_t llen, un
     const std::string scaledText = commaString(mul * med);
     printf("avg. %12.2lf us (%8.2lf ms); median %16s cycles, %5llux: %16s cycles\n",
            result, result / 1e3, medText.c_str(), mul, scaledText.c_str());
+}
+
+// Formats absolute cycles and times to match display_result requirements
+static void print_side_results(const std::string &label, const std::vector<unsigned long long> &individual_cycles, const std::vector<double> &individual_times)
+{
+    double total_time_us = 0;
+    for (double t_val : individual_times)
+    {
+        total_time_us += t_val;
+    }
+
+    // Convert individual cycle metrics into a cumulative list for delta()
+    std::vector<unsigned long long> cumulative_cycles(NTESTS + 1, 0);
+    for (size_t idx = 0; idx < NTESTS; idx++)
+    {
+        cumulative_cycles[idx + 1] = cumulative_cycles[idx] + individual_cycles[idx];
+    }
+
+    printf("%-22s", label.c_str());
+    display_result(total_time_us, cumulative_cycles.data(), NTESTS, 1);
 }
 
 // ==========================================
@@ -190,7 +189,6 @@ SSL_CTX *create_server_context_two_way()
         exit(EXIT_FAILURE);
     }
 
-    // Load server certificate and key
     if (SSL_CTX_use_certificate_file(ctx, SERVER_CERT, SSL_FILETYPE_PEM) <= 0 ||
         SSL_CTX_use_PrivateKey_file(ctx, SERVER_KEY, SSL_FILETYPE_PEM) <= 0)
     {
@@ -199,7 +197,6 @@ SSL_CTX *create_server_context_two_way()
         exit(EXIT_FAILURE);
     }
 
-    // Configure client certificate verification
     SSL_CTX_set_verify(ctx, SSL_VERIFY_PEER | SSL_VERIFY_FAIL_IF_NO_PEER_CERT, NULL);
     if (SSL_CTX_load_verify_locations(ctx, CA_CERT, NULL) <= 0)
     {
@@ -224,7 +221,6 @@ SSL_CTX *create_client_context_two_way()
 
     SSL_CTX_set_min_proto_version(ctx, TLS1_3_VERSION);
 
-    // Load verifier certificate and key
     if (SSL_CTX_use_certificate_file(ctx, VERIFIER_CERT, SSL_FILETYPE_PEM) <= 0 ||
         SSL_CTX_use_PrivateKey_file(ctx, VERIFIER_KEY, SSL_FILETYPE_PEM) <= 0)
     {
@@ -233,7 +229,6 @@ SSL_CTX *create_client_context_two_way()
         exit(EXIT_FAILURE);
     }
 
-    // Verify server certificate
     SSL_CTX_set_verify(ctx, SSL_VERIFY_PEER, NULL);
     if (SSL_CTX_load_verify_locations(ctx, CA_CERT, NULL) <= 0)
     {
@@ -262,7 +257,7 @@ void server_thread_func(SSL_CTX *server_ctx, int server_fd, std::atomic<bool> &r
         FD_SET(server_fd, &read_fds);
         struct timeval timeout;
         timeout.tv_sec = 0;
-        timeout.tv_usec = 50000; // 50ms timeout for graceful thread exit
+        timeout.tv_usec = 50000;
 
         int sel = select(server_fd + 1, &read_fds, NULL, NULL, &timeout);
         if (sel <= 0)
@@ -279,9 +274,25 @@ void server_thread_func(SSL_CTX *server_ctx, int server_fd, std::atomic<bool> &r
         SSL *ssl = SSL_new(server_ctx);
         SSL_set_fd(ssl, client_fd);
 
-        if (SSL_accept(ssl) <= 0)
+        // Profile the server-side TLS Handshake execution (SSL_accept)
+        struct timespec s_start, s_stop;
+        clock_gettime(CLOCK_MONOTONIC, &s_start);
+        unsigned long long c_start = cpucycles();
+
+        int ret = SSL_accept(ssl);
+
+        unsigned long long c_stop = cpucycles();
+        clock_gettime(CLOCK_MONOTONIC, &s_stop);
+
+        if (ret > 0)
         {
-            // Handshake failed or connection closed
+            int idx = server_sample_idx.fetch_add(1);
+            if (idx < NTESTS)
+            {
+                server_samples[idx].cycles = c_stop - c_start;
+                server_samples[idx].time_us = ((double)(s_stop.tv_sec - s_start.tv_sec) * 1e6 +
+                                               (double)(s_stop.tv_nsec - s_start.tv_nsec) / 1e3);
+            }
         }
 
         SSL_shutdown(ssl);
@@ -291,10 +302,10 @@ void server_thread_func(SSL_CTX *server_ctx, int server_fd, std::atomic<bool> &r
 }
 
 // ==========================================
-// Client Helper for Handshake Execution
+// Client Handshake Profile Routine
 // ==========================================
 
-void run_client_handshake(SSL_CTX *client_ctx, int port)
+void run_client_handshake_profile(SSL_CTX *client_ctx, int port, std::vector<unsigned long long> &client_cycles, std::vector<double> &client_times)
 {
     int client_fd = socket(AF_INET, SOCK_STREAM, 0);
     if (client_fd < 0)
@@ -314,7 +325,21 @@ void run_client_handshake(SSL_CTX *client_ctx, int port)
         if (ssl)
         {
             SSL_set_fd(ssl, client_fd);
+
+            // Profile the client-side TLS Handshake execution (SSL_connect)
+            struct timespec c_start, c_stop;
+            clock_gettime(CLOCK_MONOTONIC, &c_start);
+            unsigned long long cy_start = cpucycles();
+
             SSL_connect(ssl);
+
+            unsigned long long cy_stop = cpucycles();
+            clock_gettime(CLOCK_MONOTONIC, &c_stop);
+
+            client_cycles.push_back(cy_stop - cy_start);
+            client_times.push_back(((double)(c_stop.tv_sec - c_start.tv_sec) * 1e6 +
+                                    (double)(c_stop.tv_nsec - c_start.tv_nsec) / 1e3));
+
             SSL_shutdown(ssl);
             SSL_free(ssl);
         }
@@ -323,7 +348,7 @@ void run_client_handshake(SSL_CTX *client_ctx, int port)
 }
 
 // ==========================================
-// Socket Helpers
+// Socket Helper
 // ==========================================
 
 int setup_server_socket(int port)
@@ -360,6 +385,71 @@ int setup_server_socket(int port)
 }
 
 // ==========================================
+// Test Runner Orchestration
+// ==========================================
+
+void run_full_benchmark_suite(const std::string &title, SSL_CTX *server_ctx, SSL_CTX *client_ctx, int port)
+{
+    // Reset Shared Server Metrics
+    server_sample_idx = 0;
+    std::memset(server_samples, 0, sizeof(server_samples));
+
+    int server_fd = setup_server_socket(port);
+
+    std::atomic<bool> server_ready(false);
+    std::atomic<bool> server_running(true);
+
+    std::thread server_thread(server_thread_func, server_ctx, server_fd,
+                              std::ref(server_ready), std::ref(server_running));
+
+    while (!server_ready)
+    {
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+
+    std::vector<unsigned long long> client_cycles;
+    std::vector<double> client_times;
+    client_cycles.reserve(NTESTS);
+    client_times.reserve(NTESTS);
+
+    // Perform Sequential profiled handshakes
+    for (int idx = 0; idx < NTESTS; idx++)
+    {
+        run_client_handshake_profile(client_ctx, port, client_cycles, client_times);
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+
+    // Shut down background thread
+    server_running = false;
+    if (server_thread.joinable())
+    {
+        server_thread.join();
+    }
+    close(server_fd);
+
+    // Extract Server Metrics
+    std::vector<unsigned long long> extracted_server_cycles;
+    std::vector<double> extracted_server_times;
+    extracted_server_cycles.reserve(NTESTS);
+    extracted_server_times.reserve(NTESTS);
+
+    for (int idx = 0; idx < NTESTS; idx++)
+    {
+        extracted_server_cycles.push_back(server_samples[idx].cycles);
+        extracted_server_times.push_back(server_samples[idx].time_us);
+    }
+
+    // Display Results for both Client and Server
+    std::cout << "============================================================" << std::endl;
+    std::cout << " Suite: " << title << std::endl;
+    std::cout << "============================================================" << std::endl;
+    print_side_results(title + " (Client)", client_cycles, client_times);
+    print_side_results(title + " (Server)", extracted_server_cycles, extracted_server_times);
+    std::cout << "============================================================" << std::endl;
+    std::cout << std::endl;
+}
+
+// ==========================================
 // Main Benchmark Entry Point
 // ==========================================
 
@@ -373,13 +463,8 @@ int main()
     OpenSSL_add_all_algorithms();
     SSL_load_error_strings();
 
-    // Declarations for measurement macros
-    unsigned long long t[NTESTS + 1];
-    struct timespec start, stop;
-    double result;
-    unsigned int i;
-
-    std::cout << "Starting TLS 1.3 Handshake Benchmark (" << NTESTS << " iterations per test)..." << std::endl;
+    std::cout << "Starting TLS 1.3 Handshake Benchmark (" << NTESTS << " iterations per test)..." << std::endl
+              << std::endl;
 
     // ------------------------------------------
     // Test 1: One-Way Authentication
@@ -388,28 +473,8 @@ int main()
         SSL_CTX *server_ctx_1w = create_server_context_one_way();
         SSL_CTX *client_ctx_1w = create_client_context_one_way();
 
-        int server_fd_1w = setup_server_socket(PORT_ONE_WAY);
+        run_full_benchmark_suite("TLS_One_Way", server_ctx_1w, client_ctx_1w, PORT_ONE_WAY);
 
-        std::atomic<bool> server_ready_1w(false);
-        std::atomic<bool> server_running_1w(true);
-
-        std::thread server_thread_1w(server_thread_func, server_ctx_1w, server_fd_1w,
-                                     std::ref(server_ready_1w), std::ref(server_running_1w));
-
-        while (!server_ready_1w)
-        {
-            std::this_thread::sleep_for(std::chrono::milliseconds(10));
-        }
-
-        MEASURE("TLS_One_Way..", 1, run_client_handshake(client_ctx_1w, PORT_ONE_WAY));
-
-        server_running_1w = false;
-        if (server_thread_1w.joinable())
-        {
-            server_thread_1w.join();
-        }
-
-        close(server_fd_1w);
         SSL_CTX_free(server_ctx_1w);
         SSL_CTX_free(client_ctx_1w);
     }
@@ -421,28 +486,8 @@ int main()
         SSL_CTX *server_ctx_2w = create_server_context_two_way();
         SSL_CTX *client_ctx_2w = create_client_context_two_way();
 
-        int server_fd_2w = setup_server_socket(PORT_TWO_WAY);
+        run_full_benchmark_suite("TLS_Two_Way", server_ctx_2w, client_ctx_2w, PORT_TWO_WAY);
 
-        std::atomic<bool> server_ready_2w(false);
-        std::atomic<bool> server_running_2w(true);
-
-        std::thread server_thread_2w(server_thread_func, server_ctx_2w, server_fd_2w,
-                                     std::ref(server_ready_2w), std::ref(server_running_2w));
-
-        while (!server_ready_2w)
-        {
-            std::this_thread::sleep_for(std::chrono::milliseconds(10));
-        }
-
-        MEASURE("TLS_Two_Way..", 1, run_client_handshake(client_ctx_2w, PORT_TWO_WAY));
-
-        server_running_2w = false;
-        if (server_thread_2w.joinable())
-        {
-            server_thread_2w.join();
-        }
-
-        close(server_fd_2w);
         SSL_CTX_free(server_ctx_2w);
         SSL_CTX_free(client_ctx_2w);
     }

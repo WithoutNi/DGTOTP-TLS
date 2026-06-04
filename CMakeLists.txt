@@ -101,7 +101,7 @@ target_include_directories(dgtotp_lib PUBLIC
 )
 
 # Generate executables
-add_executable(client tls/client.cpp test/cycles.c)
+add_executable(client tls/client.cpp)
 target_link_libraries(client 
     dgtotp_lib 
     ${OPENSSL_LIBRARIES} 

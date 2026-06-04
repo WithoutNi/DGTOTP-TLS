@@ -1,9 +1,9 @@
 # DGTOTP-TLS Project
 ## Overview
-This project implements a DGTOTP-TLS system for secure authentication and verification using cryptographic libraries and TLS communication. It includes three executable components: a client, a server, and a verifier.
+This project implements a DGTOTP-TLS authentication system that integrates DGTOTP-based verification with TLS communication. It provides three runtime components: a client, a server, and a verifier.
 
 ## System Requirements
-Operating System: Linux (tested on x86_64 Ubuntu)
+Operating System: Linux (tested on Ubuntu 18.04.6 LTS)
 
 CMake: Version 3.10 or higher
 
@@ -29,38 +29,79 @@ sudo apt-get install libssl-dev libgmp-dev libcrypto++-dev
 sudo dnf install openssl-devel gmp-devel cryptopp-devel
 ```
 
-Step 2: Clone and Build the Project
+Step 2: Clone the Project
 ```bash
 # Clone the repository (if applicable)
 git clone <repository-url>
 cd <project-directory>
+```
 
-# Create a build directory
-mkdir build
-cd build
-
-# Configure the project with CMake
-cmake ..
-
-# Build the project
-make
+Step 3: Build and Generate Certificates
+```bash
+chmod +x setup.sh
+./setup.sh
 ```
 
 ## How to Run
+After running `setup.sh`, the TLS executables built from `tls/client.cpp`,
+`tls/server.cpp`, and `tls/verifier.cpp` are available in the `build/`
+directory. Start them in the following order:
+
 ```bash
-# Generate a private key
-openssl ecparam -name prime256v1 -genkey -noout -out server.key
-# Generate a self-signed certificate
-openssl req -new -x509 -key server.key -out server.crt -days 365 -subj "/C=CN/ST=Beijing/L=Beijing/O=DGTOTP-TLS/CN=localhost"
-# Running the Server
+# Terminal 1: start the server
+cd build
 ./server
-# Running the Verifier
+
+# Terminal 2: start the verifier
+cd build
 ./verifier
-# Running the Client
+
+# Terminal 3: run the client
+cd build
 ./client
 ```
 
-# Project Structure
+Please start the server and verifier before running the client.
+
+## How to Benchmark
+
+Run `setup.sh` first so that all benchmark targets are built and the required
+TLS certificates are generated in the `build/` directory.
+
+```bash
+chmod +x setup.sh
+./setup.sh
+```
+
+### DGTOTP Benchmark
+The `benchmark` executable measures the core DGTOTP and cryptographic
+operations implemented in `test/benchmark.cpp`.
+
+```bash
+cd build
+./benchmark
+```
+
+This benchmark prints timing and CPU-cycle statistics to the terminal and saves
+raw cycle samples to `build/benchmark_dgtotp.txt`.
+
+### TLS Handshake Benchmark
+The `tls_benchmark` executable measures TLS 1.3 handshake performance for both
+one-way authentication and two-way mutual authentication, using the benchmark
+logic in `test/tls_benchmark.cpp`.
+
+```bash
+cd build
+./tls_benchmark
+```
+
+The TLS benchmark runs local background server threads and uses ports `4440`
+for one-way authentication and `4441` for two-way authentication. Make sure
+these ports are free before running it. Run this command from `build/` because
+the benchmark loads `ca.crt`, `server.crt`, `server.key`, `verifier.crt`, and
+`verifier.key` from the current directory.
+
+## Project Structure
 ```text
 DGTOTP-TLS-main/
 ├─ inc/            #Header files (if not shown, assumed to exist).
@@ -68,6 +109,10 @@ DGTOTP-TLS-main/
 ├─ src/            #Contains the core source files for cryptographic and utility functions.
 
 ├─ tls/            #Contains TLS-specific client, server, and verifier implementations.
+
+├─ test/          # Benchmark and test source files.
+
+├─ setup.sh       # Build script and certificate generation.
 
 ├─ CMakeLists.txt  #CMake build configuration.
 ```

@@ -3,8 +3,6 @@
 #include <string>
 #include <vector>
 #include <ctime>
-#include <chrono>
-#include <cstdint>
 
 #include <unistd.h>
 #include <arpa/inet.h>
@@ -16,7 +14,6 @@
 #include "DGTOTP.h"
 #include "DGTOTP_PRF.h"
 #include "util.h"
-#include "../test/cycles.h"
 
 #define VERIFIER_IP "127.0.0.1"
 #define VERIFIER_PORT 4434
@@ -26,35 +23,6 @@
 // Global variables to store Finished message
 static unsigned char fin_msg[BUFFER_SIZE];
 static size_t fin_msg_len = 0;
-
-struct SSLIOCounter
-{
-    uint64_t read;
-    uint64_t written;
-};
-
-SSLIOCounter GetSSLIOCounter(SSL *ssl)
-{
-    BIO *rbio = SSL_get_rbio(ssl);
-    BIO *wbio = SSL_get_wbio(ssl);
-
-    return {
-        rbio ? BIO_number_read(rbio) : 0,
-        wbio ? BIO_number_written(wbio) : 0};
-}
-
-void PrintSSLIOStats(const std::string &label,
-                     const SSLIOCounter &before,
-                     const SSLIOCounter &after)
-{
-    const uint64_t sent = after.written - before.written;
-    const uint64_t received = after.read - before.read;
-
-    std::cout << "[" << label << "] communication overhead: sent "
-              << std::dec << sent << " bytes, received "
-              << std::dec << received << " bytes, total "
-              << std::dec << sent + received << " bytes" << std::endl;
-}
 
 int TagCheck(unsigned char ki[], int current_epoch_j, std::string SG, pw_CM commitment, const unsigned char *tags, size_t tag_len)
 {
@@ -225,7 +193,7 @@ int main()
         bool keep_connection = true;
         while (keep_connection)
         {
-            size_t server_response_len = SSL_read(server_ssl, server_response, sizeof(server_response) - 1);
+            int server_response_len = SSL_read(server_ssl, server_response, sizeof(server_response) - 1);
             if (server_response_len > 0)
             {
                 if (server_response_len < KEY_LENGTH_BYTES + 4 + KEY_LENGTH_BYTES)
@@ -233,10 +201,10 @@ int main()
                     throw std::runtime_error("Server join receipt is too short");
                 }
 
-                printf("Received from server: %zu bytes\n", server_response_len);
+                printf("Received from server: %d bytes\n", server_response_len);
                 server_response[server_response_len] = '\0';
                 printf("server response: \n");
-                for (size_t i = 0; i < server_response_len; i++)
+                for (int i = 0; i < server_response_len; i++)
                 {
                     printf("%02X ", server_response[i]);
                     if ((i + 1) % 16 == 0)
@@ -320,32 +288,12 @@ int main()
     SSL_set_msg_callback_arg(verifier_ssl, NULL);
 
     // Perform TLS handshake
-    const SSLIOCounter verifier_handshake_io_before = GetSSLIOCounter(verifier_ssl);
-    const auto verifier_handshake_start = std::chrono::steady_clock::now();
-    const unsigned long long verifier_handshake_cycles_before = cpucycles();
-
     if (SSL_connect(verifier_ssl) <= 0)
     {
         ERR_print_errors_fp(stderr);
     }
     else
     {
-        const unsigned long long verifier_handshake_cycles_after = cpucycles();
-        const auto verifier_handshake_end = std::chrono::steady_clock::now();
-
-        const auto verifier_handshake_duration_us =
-            std::chrono::duration_cast<std::chrono::microseconds>(
-                verifier_handshake_end - verifier_handshake_start)
-                .count();
-        const SSLIOCounter verifier_handshake_io_after = GetSSLIOCounter(verifier_ssl);
-
-        std::cout << "[TLS Handshake Stats] computation time: "
-                  << verifier_handshake_duration_us << " us" << std::endl;
-
-        std::cout << "[TLS Handshake Stats] cycles: "
-                  << verifier_handshake_cycles_after - verifier_handshake_cycles_before
-                  << std::endl;
-        PrintSSLIOStats("TLS Handshake Stats", verifier_handshake_io_before, verifier_handshake_io_after);
         printf("Connected to verifier with %s\n", SSL_get_cipher(verifier_ssl));
 
         // Prepare data to send
@@ -387,18 +335,10 @@ int main()
         std::string message = "MSG:" + Com;
 
         // Send commitment and related information
-        const SSLIOCounter com_io_before = GetSSLIOCounter(verifier_ssl);
-        const auto send_com_start = std::chrono::steady_clock::now();
         int bytes_sent = SSL_write(verifier_ssl, message.c_str(), message.length());
         if (bytes_sent > 0)
         {
-            const auto send_com_end = std::chrono::steady_clock::now();
-            const auto send_com_duration_us =
-                std::chrono::duration_cast<std::chrono::microseconds>(send_com_end - send_com_start).count();
-            const SSLIOCounter com_io_after = GetSSLIOCounter(verifier_ssl);
-            std::cout << "[Send Com] computation time: " << send_com_duration_us << " us" << std::endl;
-            PrintSSLIOStats("Write com Stats", com_io_before, com_io_after);
-            std::cout << "Successfully sent commitment data: " << bytes_sent << " bytes" << std::endl;
+            std::cout << "Successfully sent commitment data: " << std::dec << bytes_sent << " bytes" << std::endl;
         }
         else
         {
@@ -411,15 +351,12 @@ int main()
 
         while (keep_connection)
         {
-            const SSLIOCounter tag_io_before = GetSSLIOCounter(verifier_ssl);
             int bytes = SSL_read(verifier_ssl, buf, sizeof(buf) - 1);
             if (bytes > 0)
             {
-                const SSLIOCounter tag_io_after = GetSSLIOCounter(verifier_ssl);
-                PrintSSLIOStats("Read tag Stats", tag_io_before, tag_io_after);
                 buf[bytes] = '\0';
                 printf("Verifier response: \n");
-                for (size_t i = 0; i < bytes; i++)
+                for (int i = 0; i < bytes; i++)
                 {
                     printf("%02X ", buf[i]);
                     if ((i + 1) % 16 == 0)
@@ -439,11 +376,8 @@ int main()
                     std::string pw = "PW:" + password.totp_password +
                                      password.collision_randomness +
                                      password.identity_ciphertext;
-                    const SSLIOCounter pw_io_before = GetSSLIOCounter(verifier_ssl);
                     int pw_len = SSL_write(verifier_ssl, pw.c_str(), pw.length());
-                    const SSLIOCounter pw_io_after = GetSSLIOCounter(verifier_ssl);
-                    PrintSSLIOStats("Write pw Stats", pw_io_before, pw_io_after);
-                    std::cout << "Successfully sent password data: " << pw_len << " bytes" << std::endl;
+                    std::cout << "Successfully sent password data: " << std::dec << pw_len << " bytes" << std::endl;
                 }
 
                 // close the connection

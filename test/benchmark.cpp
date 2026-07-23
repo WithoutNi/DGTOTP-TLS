@@ -26,6 +26,7 @@
 #include "TOTP.h"
 #include "cycles.h"
 #include "util.h"
+#include "KeyGen.h"
 
 #define NTESTS 10
 
@@ -172,28 +173,31 @@ static std::string makeMemberId(size_t index)
     return bytesToHex(digest, ID_LENGTH_BYTES);
 }
 
-static void Setup(int securityParameter,
-                  size_t subgroupCount,
-                  int groupMemberCount,
-                  long sharedStartTime,
-                  long endTime,
-                  int verificationPeriod,
-                  int passwordGenerationPeriod,
-                  std::vector<DGTOTP> &dgtotpVec,
-                  std::vector<unsigned char *> &sk_ske)
+static void RASetup(int k,
+                    struct TAUX &taux,
+                    size_t ℓ_ep,
+                    int I,
+                    std::vector<DGTOTP> &dgtotpVec,
+                    unsigned char *&sk_ske)
 {
-    if (dgtotpVec.size() != subgroupCount || sk_ske.size() != subgroupCount)
+    if (dgtotpVec.size() != I)
     {
         throw std::invalid_argument("Setup containers must match subgroup count");
     }
 
-    for (size_t i = 0; i < subgroupCount; ++i)
+    long T_s = taux.T_s;
+    long T_e = T_s + taux.E * ℓ_ep;
+    long delta_e = ℓ_ep;
+    long delta_s = DELTA_S; // 1 seconds
+    long U = MAX_GROUP_MEMBER;
+    std::vector<std::string> G(I);
+
+    for (size_t i = 0; i < I; ++i)
     {
-        const std::string groupName = "DGTOTP" + std::to_string(i);
-        dgtotpVec[i].RASetup(securityParameter, groupName, groupMemberCount, sharedStartTime,
-                             endTime, verificationPeriod, passwordGenerationPeriod);
-        sk_ske[i] = DGTOTP_PRF::createKey();
+        G[i] = "DGTOTP" + std::to_string(i);
+        dgtotpVec[i].RASetup(k, G[i], U, T_s, T_e, delta_e, delta_s);
     }
+    sk_ske = DGTOTP_PRF::createKey();
 }
 
 static std::vector<std::vector<unsigned char>> TagGen(
@@ -217,18 +221,17 @@ static std::vector<std::vector<unsigned char>> TagGen(
 
     std::string SG(reinterpret_cast<const char *>(received_msg + commitment_len), SG_LENGTH_BYTES);
 
-    Com com;
-    com.SGId = static_cast<unsigned char>(SG[0]);
-    com.CM.UCM = ucm;
-    com.CM.SCM = scm;
+    PwUsageRecord PURec;
+    PURec.SGId = static_cast<unsigned char>(SG[0]);
+    PURec.UCM = ucm;
 
-    if (!as.CheckAndAddCM(com))
+    if (!as.CheckAndAddPURec(PURec))
     {
         return {};
     }
 
-    Skeys shared_keys = as.QuerySkeysBySGId(com.SGId);
-    if (shared_keys.empty())
+    ConfKeyList ConfKeys = as.QueryConfKeyListBySGId(PURec.SGId);
+    if (ConfKeys.empty())
     {
         throw std::runtime_error("Shared key collection is empty");
     }
@@ -240,9 +243,9 @@ static std::vector<std::vector<unsigned char>> TagGen(
     const std::string tag_input = std::string("Tag") +
                                   std::string(reinterpret_cast<const char *>(received_msg), commitment_len);
 
-    for (const auto &shared_key : shared_keys)
+    for (const auto &confKey : ConfKeys)
     {
-        if (shared_key.key.empty())
+        if (confKey.key.empty())
         {
             continue;
         }
@@ -251,7 +254,7 @@ static std::vector<std::vector<unsigned char>> TagGen(
         unsigned char k_tag[KEY_LENGTH_BYTES];
         unsigned char tag[KEY_LENGTH_BYTES];
 
-        prf1(kij, KEY_LENGTH_BYTES, const_cast<unsigned char *>(shared_key.key.data()), shared_key.key.size(),
+        prf1(kij, KEY_LENGTH_BYTES, const_cast<unsigned char *>(confKey.key.data()), confKey.key.size(),
              reinterpret_cast<const unsigned char *>(kg_input.data()), kg_input.size());
         prf1(k_tag, KEY_LENGTH_BYTES, kij, KEY_LENGTH_BYTES,
              reinterpret_cast<const unsigned char *>(kt_input.data()), kt_input.size());
@@ -468,8 +471,8 @@ int main()
     const int securityParameter = SECURITY_PARAMETER_BITS;
     const int subgroupCount = SG_NUM;
     const int groupMemberCount = 64;
-    const int verificationPeriod = 300000;
-    const int passwordGenerationPeriod = 5000;
+    const int verificationPeriod = DELTA_E;
+    const int passwordGenerationPeriod = DELTA_S;
     const long endTime = sharedStartTime + EPOCH_COUNT * verificationPeriod;
     const long protocolTime = getCurrentTimeMillis();
     unsigned char fin_msg[32] = {0};
@@ -652,9 +655,15 @@ int main()
     });
     save_result(fp, "CHc", t, NTESTS);
 
+    // Generate verifier certificate and key if they don't exist
+    std::string key_file = "test.key";
+    std::string cert_file = "test.crt";
+    MEASURE("KeyGen..", 1, GenerateKeyAndCertificate(key_file, cert_file));
+    save_result(fp, "KeyGen", t, NTESTS);
+
     DGTOTP dgtotp;
-    MEASURE("RASetup..", 1, dgtotp.RASetup(securityParameter, "dgtotp", groupMemberCount, sharedStartTime, endTime, verificationPeriod, passwordGenerationPeriod));
-    save_result(fp, "RASetup", t, NTESTS);
+    MEASURE("dgtotp.RASetup..", 1, dgtotp.RASetup(securityParameter, "dgtotp", groupMemberCount, sharedStartTime, endTime, verificationPeriod, passwordGenerationPeriod));
+    save_result(fp, "dgtotp.RASetup", t, NTESTS);
 
     unsigned int permutation_seed = 0;
     RAND_bytes(reinterpret_cast<unsigned char *>(&permutation_seed), sizeof(permutation_seed));
@@ -665,16 +674,18 @@ int main()
     save_result(fp, "PM", t, NTESTS);
 
     std::vector<DGTOTP> dgtotpVec(SG_NUM);
-    std::vector<unsigned char *> setupSkSke(SG_NUM, nullptr);
+    unsigned char *setupSkSke = nullptr;
 
-    MEASURE("Setup..", 1, {
-        for (size_t j = 0; j < setupSkSke.size(); ++j)
+    struct TAUX taux;
+    taux.T_s = sharedStartTime;
+    taux.E = EPOCH_COUNT;
+
+    MEASURE("RASetup..", 1, {
+        if (setupSkSke)
         {
-            free(setupSkSke[j]);
-            setupSkSke[j] = nullptr;
+            free(setupSkSke);
         }
-        Setup(securityParameter, SG_NUM, groupMemberCount, sharedStartTime, endTime,
-              verificationPeriod, passwordGenerationPeriod, dgtotpVec, setupSkSke);
+        RASetup(securityParameter, taux, DELTA_E, SG_NUM, dgtotpVec, setupSkSke);
     });
     save_result(fp, "Setup", t, NTESTS);
 
@@ -700,17 +711,17 @@ int main()
     AS as;
     for (size_t j = 0; j < memberIds.size(); ++j)
     {
-        Skey skey;
-        skey.SGId = memberSGIds[j];
-        skey.key.resize(KEY_LENGTH_BYTES);
+        ConfKey confKey;
+        confKey.SGId = memberSGIds[j];
+        confKey.key.resize(KEY_LENGTH_BYTES);
         unsigned char rv[KEY_LENGTH_BYTES];
         RAND_bytes(rv, KEY_LENGTH_BYTES);
         std::string msg = "SK" + bytesToHex(rv, KEY_LENGTH_BYTES);
-        prf1(skey.key.data(), skey.key.size(),
-             setupSkSke[memberSGIds[j]], KEY_LENGTH_BYTES,
+        prf1(confKey.key.data(), confKey.key.size(),
+             setupSkSke, KEY_LENGTH_BYTES,
              reinterpret_cast<const unsigned char *>(msg.c_str()), msg.length());
-        kiVec[j] = skey.key;
-        as.AddSkey(skey);
+        kiVec[j] = confKey.key;
+        as.AddConfkey(confKey);
     }
 
     std::vector<std::string> secretSeeds(NTESTS);
@@ -846,10 +857,7 @@ int main()
 
     printf("Raw cycle samples saved to benchmark_dgtotp.txt\n");
 
-    for (size_t j = 0; j < setupSkSke.size(); ++j)
-    {
-        free(setupSkSke[j]);
-    }
+    free(setupSkSke);
     EC_POINT_free(ecc_result);
     BN_free(ecc_scalar);
     mpz_clear(mod_base);

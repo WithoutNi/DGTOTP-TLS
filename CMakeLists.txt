@@ -91,6 +91,7 @@ set(COMMON_SOURCES
     src/TOTP.cpp
     src/Verifier.cpp
     src/util.cpp
+    src/KeyGen.cpp
 )
 
 add_library(dgtotp_lib STATIC ${COMMON_SOURCES})
@@ -109,8 +110,16 @@ target_link_libraries(client
     ${CRYPTOPP_LIBRARIES}
 )
 
-add_executable(server tls/server.cpp)
-target_link_libraries(server 
+add_executable(server_RA tls/server_RA.cpp)
+target_link_libraries(server_RA 
+    dgtotp_lib 
+    ${OPENSSL_LIBRARIES} 
+    ${GMP_LIBRARIES} 
+    ${CRYPTOPP_LIBRARIES}
+)
+
+add_executable(server_AS tls/server_AS.cpp)
+target_link_libraries(server_AS 
     dgtotp_lib 
     ${OPENSSL_LIBRARIES} 
     ${GMP_LIBRARIES} 

@@ -16,9 +16,21 @@
 #include "util.h"
 
 #define VERIFIER_IP "127.0.0.1"
+#define SERVER_RA_IP "127.0.0.1"
 #define VERIFIER_PORT 4434
-#define SERVER_PORT 4435
+#define SERVER_RA_PORT 4435
 #define BUFFER_SIZE 1024
+
+#define CHECK_SSL_CTX(iRet, msg)                                \
+    do                                                          \
+    {                                                           \
+        if ((iRet) <= 0)                                        \
+        {                                                       \
+            fprintf(stderr, "%s failed (ret=%d)\n", msg, iRet); \
+            ERR_print_errors_fp(stderr);                        \
+            return NULL;                                        \
+        }                                                       \
+    } while (0)
 
 // Global variables to store Finished message
 static unsigned char fin_msg[BUFFER_SIZE];
@@ -47,7 +59,7 @@ int TagCheck(unsigned char ki[], int current_epoch_j, std::string SG, pw_CM comm
     printBytes(tag, KEY_LENGTH_BYTES);
     std::cout << std::endl;
     // compare method should compare every KEY_LENGTH_BYTES bytes in tags
-    for (int i = 0; i < tag_len; i += KEY_LENGTH_BYTES)
+    for (size_t i = 0; i + KEY_LENGTH_BYTES <= tag_len; i += KEY_LENGTH_BYTES)
     {
         if (memcmp(tags + i, tag, KEY_LENGTH_BYTES) == 0)
         {
@@ -85,24 +97,31 @@ void msg_callback(int write_p, int version, int content_type,
     }
 }
 
-SSL_CTX *create_context()
+SSL_CTX *create_client_context()
 {
+    int iRet = 0;
     const SSL_METHOD *method = TLS_client_method();
     SSL_CTX *ctx = SSL_CTX_new(method);
-    if (!ctx)
-    {
-        perror("SSL_CTX_new failed");
-        ERR_print_errors_fp(stderr);
-        exit(EXIT_FAILURE);
-    }
+    iRet = (ctx != NULL) ? 1 : 0;
+    CHECK_SSL_CTX(iRet, "SSL_CTX_new");
+
+    iRet = SSL_CTX_set_min_proto_version(ctx, TLS1_3_VERSION);
+    CHECK_SSL_CTX(iRet, "SSL_CTX_set_min_proto_version");
+
+    // Verify server certificate using CA
+    SSL_CTX_set_verify(ctx, SSL_VERIFY_PEER, NULL);
+
+    iRet = SSL_CTX_load_verify_locations(ctx, "ca.crt", NULL);
+    CHECK_SSL_CTX(iRet, "SSL_CTX_load_verify_locations");
+
     return ctx;
 }
 
 int main()
 {
     SSL_CTX *ctx, *ctx1;
-    int server_sockfd, verifier_sockfd;
-    struct sockaddr_in server_addr, verifier_addr;
+    int ra_sockfd, verifier_sockfd;
+    struct sockaddr_in server_ra_addr, verifier_addr;
     const long sharedStartTime = readProtocolStartTimeMillis();
     std::cout << "Protocol start time read from "
               << getProtocolStartTimeFilePath() << ": "
@@ -111,9 +130,9 @@ int main()
     DGTOTP dgtotp;
     DGTOTP::JoinReceipt joinReceipt;
     const int securityParameter = SECURITY_PARAMETER_BITS;
-    const int groupMemberCount = 10;
-    const int verificationPeriod = 300000;
-    const int passwordGenerationPeriod = 5000;
+    const int groupMemberCount = MAX_GROUP_MEMBER;
+    const int verificationPeriod = DELTA_E;
+    const int passwordGenerationPeriod = DELTA_S;
     const long endTime = sharedStartTime + EPOCH_COUNT * verificationPeriod;
 
     // Initialize OpenSSL
@@ -138,48 +157,40 @@ int main()
 
     // TLS connection with server
     // Create SSL context
-    ctx = create_context();
-    SSL_CTX_set_min_proto_version(ctx, TLS1_3_VERSION);
-
-    // Verify server certificate using CA
-    SSL_CTX_set_verify(ctx, SSL_VERIFY_PEER, NULL);
-    if (SSL_CTX_load_verify_locations(ctx, "ca.crt", NULL) <= 0)
-    {
-        ERR_print_errors_fp(stderr);
-    }
+    ctx = create_client_context();
 
     // Create TCP connection (connect to server)
-    server_sockfd = socket(AF_INET, SOCK_STREAM, 0);
-    memset(&server_addr, 0, sizeof(server_addr));
-    server_addr.sin_family = AF_INET;
-    server_addr.sin_port = htons(SERVER_PORT);
-    inet_pton(AF_INET, VERIFIER_IP, &server_addr.sin_addr);
+    ra_sockfd = socket(AF_INET, SOCK_STREAM, 0);
+    memset(&server_ra_addr, 0, sizeof(server_ra_addr));
+    server_ra_addr.sin_family = AF_INET;
+    server_ra_addr.sin_port = htons(SERVER_RA_PORT);
+    inet_pton(AF_INET, SERVER_RA_IP, &server_ra_addr.sin_addr);
 
-    if (connect(server_sockfd, (struct sockaddr *)&server_addr, sizeof(server_addr)))
+    if (connect(ra_sockfd, (struct sockaddr *)&server_ra_addr, sizeof(server_ra_addr)))
     {
         perror("Failed to connect to server");
         exit(EXIT_FAILURE);
     }
 
     // Create SSL connection
-    SSL *server_ssl = SSL_new(ctx);
-    SSL_set_fd(server_ssl, server_sockfd);
+    SSL *ra_ssl = SSL_new(ctx);
+    SSL_set_fd(ra_ssl, ra_sockfd);
 
     // Perform TLS handshake
-    if (SSL_connect(server_ssl) <= 0)
+    if (SSL_connect(ra_ssl) <= 0)
     {
         ERR_print_errors_fp(stderr);
     }
     else
     {
-        printf("Connected to server with %s\n", SSL_get_cipher(server_ssl));
+        printf("Connected to server with %s\n", SSL_get_cipher(ra_ssl));
 
         std::cout << "Computed SGId: " << SGId << std::endl;
         std::cout << "Client group name: " << groupName << std::endl;
         std::string message = "memberId:" + memberId;
 
         // Send memberId
-        int bytes_sent = SSL_write(server_ssl, message.c_str(), message.size());
+        int bytes_sent = SSL_write(ra_ssl, message.c_str(), message.size());
         if (bytes_sent > 0)
         {
             std::cout << message << std::endl;
@@ -189,35 +200,35 @@ int main()
             std::cerr << "Failed to send data" << std::endl;
         }
         // Maintain connection and continuously receive responses
-        unsigned char server_response[BUFFER_SIZE];
+        unsigned char ra_response[BUFFER_SIZE];
         bool keep_connection = true;
         while (keep_connection)
         {
-            int server_response_len = SSL_read(server_ssl, server_response, sizeof(server_response) - 1);
-            if (server_response_len > 0)
+            int ra_response_len = SSL_read(ra_ssl, ra_response, sizeof(ra_response) - 1);
+            if (ra_response_len > 0)
             {
-                if (server_response_len < KEY_LENGTH_BYTES + 4 + KEY_LENGTH_BYTES)
+                if (ra_response_len < KEY_LENGTH_BYTES + 4 + KEY_LENGTH_BYTES)
                 {
                     throw std::runtime_error("Server join receipt is too short");
                 }
 
-                printf("Received from server: %d bytes\n", server_response_len);
-                server_response[server_response_len] = '\0';
+                printf("Received from server: %d bytes\n", ra_response_len);
+                ra_response[ra_response_len] = '\0';
                 printf("server response: \n");
-                for (int i = 0; i < server_response_len; i++)
+                for (int i = 0; i < ra_response_len; i++)
                 {
-                    printf("%02X ", server_response[i]);
+                    printf("%02X ", ra_response[i]);
                     if ((i + 1) % 16 == 0)
                         printf("\n");
                 }
                 printf("\n");
-                joinReceipt.shared_key.assign(server_response, server_response + KEY_LENGTH_BYTES);
-                joinReceipt.alpha_bytes.assign(server_response + KEY_LENGTH_BYTES, server_response + 20);
+                joinReceipt.shared_key.assign(ra_response, ra_response + KEY_LENGTH_BYTES);
+                joinReceipt.alpha_bytes.assign(ra_response + KEY_LENGTH_BYTES, ra_response + 20);
                 memcpy(shared_key_RA, joinReceipt.shared_key.data(), sizeof(shared_key_RA));
                 memcpy(alpha_bytes, joinReceipt.alpha_bytes.data(), sizeof(alpha_bytes));
-                memcpy(shared_key_AS, server_response + 20, sizeof(shared_key_AS));
+                memcpy(shared_key_AS, ra_response + 20, sizeof(shared_key_AS));
             }
-            else if (server_response_len == 0)
+            else if (ra_response_len == 0)
             {
                 // Close connection
                 printf("server closed the connection\n");
@@ -225,7 +236,7 @@ int main()
             }
             else
             {
-                int err = SSL_get_error(server_ssl, server_response_len);
+                int err = SSL_get_error(ra_ssl, ra_response_len);
                 if (err == SSL_ERROR_WANT_READ || err == SSL_ERROR_WANT_WRITE)
                 {
                     // Continue waiting for data
@@ -240,10 +251,10 @@ int main()
             }
         }
     }
-    SSL_shutdown(server_ssl);
-    SSL_free(server_ssl);
+    SSL_shutdown(ra_ssl);
+    SSL_free(ra_ssl);
     SSL_CTX_free(ctx);
-    close(server_sockfd);
+    close(ra_sockfd);
 
     std::cout << std::endl;
     std::cout << "********************************" << std::endl;
@@ -256,15 +267,7 @@ int main()
 
     // TLS connection with verifier
     // Create SSL context
-    ctx1 = create_context();
-    SSL_CTX_set_min_proto_version(ctx1, TLS1_3_VERSION);
-
-    // Verify verifier certificate using CA
-    SSL_CTX_set_verify(ctx1, SSL_VERIFY_PEER, NULL);
-    if (SSL_CTX_load_verify_locations(ctx1, "ca.crt", NULL) <= 0)
-    {
-        ERR_print_errors_fp(stderr);
-    }
+    ctx1 = create_client_context();
 
     // Create TCP connection (connect to Verifier)
     verifier_sockfd = socket(AF_INET, SOCK_STREAM, 0);
@@ -330,9 +333,9 @@ int main()
             std::cerr << "Error calculating password: " << e.what() << std::endl;
             return 1;
         }
-        // message=COMMITMENT+SG
-        std::string Com = commitment.UCM + commitment.SCM + SG;
-        std::string message = "MSG:" + Com;
+        // message PURec=COMMITMENT+SG
+        std::string PURec = commitment.UCM + commitment.SCM + SG;
+        std::string message = "PURec:" + PURec;
 
         // Send commitment and related information
         int bytes_sent = SSL_write(verifier_ssl, message.c_str(), message.length());

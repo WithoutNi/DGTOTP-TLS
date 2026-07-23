@@ -8,6 +8,7 @@
 #include <chrono>
 #include <thread>
 #include <atomic>
+#include <numeric>
 
 #include <unistd.h>
 #include <arpa/inet.h>
@@ -17,6 +18,7 @@
 #include <openssl/ssl.h>
 #include <openssl/err.h>
 #include <openssl/rand.h>
+#include <openssl/bio.h>
 
 // Adjust this path if necessary depending on your workspace layout
 #include "cycles.h"
@@ -27,8 +29,8 @@
 
 // Certificate path macros
 #define CA_CERT "ca.crt"
-#define SERVER_CERT "server.crt"
-#define SERVER_KEY "server.key"
+#define SERVER_CERT "AS.crt"
+#define SERVER_KEY "AS.key"
 #define VERIFIER_CERT "verifier.crt"
 #define VERIFIER_KEY "verifier.key"
 
@@ -37,13 +39,15 @@ struct HandshakeSample
 {
     unsigned long long cycles;
     double time_us;
+    size_t bytes_sent;
+    size_t bytes_received;
 };
 
 static HandshakeSample server_samples[NTESTS];
 static std::atomic<int> server_sample_idx(0);
 
 // ==========================================
-// Auxiliary statistical functions (reused from benchmark.cpp)
+// Auxiliary statistical functions
 // ==========================================
 
 static int cmp_llu(const void *a, const void *b)
@@ -97,13 +101,22 @@ static void display_result(double result, unsigned long long *l, size_t llen, un
            result, result / 1e3, medText.c_str(), mul, scaledText.c_str());
 }
 
-// Formats absolute cycles and times to match display_result requirements
-static void print_side_results(const std::string &label, const std::vector<unsigned long long> &individual_cycles, const std::vector<double> &individual_times)
+// Formats results and adds traffic statistics
+static void print_side_results(const std::string &label,
+                               const std::vector<unsigned long long> &individual_cycles,
+                               const std::vector<double> &individual_times,
+                               const std::vector<size_t> &sent_bytes,
+                               const std::vector<size_t> &received_bytes)
 {
     double total_time_us = 0;
-    for (double t_val : individual_times)
+    double total_sent = 0;
+    double total_recv = 0;
+
+    for (size_t i = 0; i < NTESTS; ++i)
     {
-        total_time_us += t_val;
+        total_time_us += individual_times[i];
+        total_sent += sent_bytes[i];
+        total_recv += received_bytes[i];
     }
 
     // Convert individual cycle metrics into a cumulative list for delta()
@@ -115,6 +128,10 @@ static void print_side_results(const std::string &label, const std::vector<unsig
 
     printf("%-22s", label.c_str());
     display_result(total_time_us, cumulative_cycles.data(), NTESTS, 1);
+
+    // Print Network Traffic Stats
+    printf("%-22s avg. Sent: %10.1f bytes, avg. Received: %10.1f bytes, total: %10.1f bytes\n",
+           " ", total_sent / NTESTS, total_recv / NTESTS, (total_sent + total_recv) / NTESTS);
 }
 
 // ==========================================
@@ -133,7 +150,7 @@ SSL_CTX *create_server_context_one_way()
     }
 
     SSL_CTX_set_min_proto_version(ctx, TLS1_3_VERSION);
-    SSL_CTX_set_num_tickets(ctx, 0);
+    SSL_CTX_set_num_tickets(ctx, 0); // Disable session tickets for clean handshake measurement
     if (!SSL_CTX_set_ciphersuites(ctx, "TLS_AES_128_GCM_SHA256"))
     {
         fprintf(stderr, "Failed to set ciphersuites\n");
@@ -261,20 +278,21 @@ void server_thread_func(SSL_CTX *server_ctx, int server_fd, std::atomic<bool> &r
 
         int sel = select(server_fd + 1, &read_fds, NULL, NULL, &timeout);
         if (sel <= 0)
-        {
             continue;
-        }
 
         int client_fd = accept(server_fd, (struct sockaddr *)&client_addr, &client_len);
         if (client_fd < 0)
-        {
             continue;
-        }
 
         SSL *ssl = SSL_new(server_ctx);
         SSL_set_fd(ssl, client_fd);
 
-        // Profile the server-side TLS Handshake execution (SSL_accept)
+        // Get internal BIO for traffic monitoring
+        BIO *rbio = SSL_get_rbio(ssl);
+        BIO *wbio = SSL_get_wbio(ssl);
+        unsigned long long b_read_before = BIO_number_read(rbio);
+        unsigned long long b_write_before = BIO_number_written(wbio);
+
         struct timespec s_start, s_stop;
         clock_gettime(CLOCK_MONOTONIC, &s_start);
         unsigned long long c_start = cpucycles();
@@ -292,6 +310,10 @@ void server_thread_func(SSL_CTX *server_ctx, int server_fd, std::atomic<bool> &r
                 server_samples[idx].cycles = c_stop - c_start;
                 server_samples[idx].time_us = ((double)(s_stop.tv_sec - s_start.tv_sec) * 1e6 +
                                                (double)(s_stop.tv_nsec - s_start.tv_nsec) / 1e3);
+
+                // Track traffic deltas
+                server_samples[idx].bytes_received = BIO_number_read(rbio) - b_read_before;
+                server_samples[idx].bytes_sent = BIO_number_written(wbio) - b_write_before;
             }
         }
 
@@ -305,13 +327,15 @@ void server_thread_func(SSL_CTX *server_ctx, int server_fd, std::atomic<bool> &r
 // Client Handshake Profile Routine
 // ==========================================
 
-void run_client_handshake_profile(SSL_CTX *client_ctx, int port, std::vector<unsigned long long> &client_cycles, std::vector<double> &client_times)
+void run_client_handshake_profile(SSL_CTX *client_ctx, int port,
+                                  std::vector<unsigned long long> &client_cycles,
+                                  std::vector<double> &client_times,
+                                  std::vector<size_t> &client_sent,
+                                  std::vector<size_t> &client_received)
 {
     int client_fd = socket(AF_INET, SOCK_STREAM, 0);
     if (client_fd < 0)
-    {
         return;
-    }
 
     struct sockaddr_in target_addr;
     memset(&target_addr, 0, sizeof(target_addr));
@@ -326,7 +350,11 @@ void run_client_handshake_profile(SSL_CTX *client_ctx, int port, std::vector<uns
         {
             SSL_set_fd(ssl, client_fd);
 
-            // Profile the client-side TLS Handshake execution (SSL_connect)
+            BIO *rbio = SSL_get_rbio(ssl);
+            BIO *wbio = SSL_get_wbio(ssl);
+            unsigned long long b_read_before = BIO_number_read(rbio);
+            unsigned long long b_write_before = BIO_number_written(wbio);
+
             struct timespec c_start, c_stop;
             clock_gettime(CLOCK_MONOTONIC, &c_start);
             unsigned long long cy_start = cpucycles();
@@ -339,6 +367,9 @@ void run_client_handshake_profile(SSL_CTX *client_ctx, int port, std::vector<uns
             client_cycles.push_back(cy_stop - cy_start);
             client_times.push_back(((double)(c_stop.tv_sec - c_start.tv_sec) * 1e6 +
                                     (double)(c_stop.tv_nsec - c_start.tv_nsec) / 1e3));
+
+            client_received.push_back(BIO_number_read(rbio) - b_read_before);
+            client_sent.push_back(BIO_number_written(wbio) - b_write_before);
 
             SSL_shutdown(ssl);
             SSL_free(ssl);
@@ -390,7 +421,6 @@ int setup_server_socket(int port)
 
 void run_full_benchmark_suite(const std::string &title, SSL_CTX *server_ctx, SSL_CTX *client_ctx, int port)
 {
-    // Reset Shared Server Metrics
     server_sample_idx = 0;
     std::memset(server_samples, 0, sizeof(server_samples));
 
@@ -409,42 +439,41 @@ void run_full_benchmark_suite(const std::string &title, SSL_CTX *server_ctx, SSL
 
     std::vector<unsigned long long> client_cycles;
     std::vector<double> client_times;
+    std::vector<size_t> client_sent, client_recv;
+
     client_cycles.reserve(NTESTS);
     client_times.reserve(NTESTS);
+    client_sent.reserve(NTESTS);
+    client_recv.reserve(NTESTS);
 
-    // Perform Sequential profiled handshakes
     for (int idx = 0; idx < NTESTS; idx++)
     {
-        run_client_handshake_profile(client_ctx, port, client_cycles, client_times);
-        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        run_client_handshake_profile(client_ctx, port, client_cycles, client_times, client_sent, client_recv);
+        std::this_thread::sleep_for(std::chrono::milliseconds(5));
     }
 
-    // Shut down background thread
     server_running = false;
     if (server_thread.joinable())
-    {
         server_thread.join();
-    }
     close(server_fd);
 
-    // Extract Server Metrics
-    std::vector<unsigned long long> extracted_server_cycles;
-    std::vector<double> extracted_server_times;
-    extracted_server_cycles.reserve(NTESTS);
-    extracted_server_times.reserve(NTESTS);
+    std::vector<unsigned long long> s_cycles;
+    std::vector<double> s_times;
+    std::vector<size_t> s_sent, s_recv;
 
     for (int idx = 0; idx < NTESTS; idx++)
     {
-        extracted_server_cycles.push_back(server_samples[idx].cycles);
-        extracted_server_times.push_back(server_samples[idx].time_us);
+        s_cycles.push_back(server_samples[idx].cycles);
+        s_times.push_back(server_samples[idx].time_us);
+        s_sent.push_back(server_samples[idx].bytes_sent);
+        s_recv.push_back(server_samples[idx].bytes_received);
     }
 
-    // Display Results for both Client and Server
     std::cout << "============================================================" << std::endl;
     std::cout << " Suite: " << title << std::endl;
     std::cout << "============================================================" << std::endl;
-    print_side_results(title + " (Client)", client_cycles, client_times);
-    print_side_results(title + " (Server)", extracted_server_cycles, extracted_server_times);
+    print_side_results(title + " (Client)", client_cycles, client_times, client_sent, client_recv);
+    print_side_results(title + " (Server)", s_cycles, s_times, s_sent, s_recv);
     std::cout << "============================================================" << std::endl;
     std::cout << std::endl;
 }
@@ -455,10 +484,8 @@ void run_full_benchmark_suite(const std::string &title, SSL_CTX *server_ctx, SSL
 
 int main()
 {
-    // Initialize CPU cycles measurement
     init_cpucycles();
 
-    // Initialize OpenSSL components
     SSL_library_init();
     OpenSSL_add_all_algorithms();
     SSL_load_error_strings();
@@ -466,9 +493,7 @@ int main()
     std::cout << "Starting TLS 1.3 Handshake Benchmark (" << NTESTS << " iterations per test)..." << std::endl
               << std::endl;
 
-    // ------------------------------------------
     // Test 1: One-Way Authentication
-    // ------------------------------------------
     {
         SSL_CTX *server_ctx_1w = create_server_context_one_way();
         SSL_CTX *client_ctx_1w = create_client_context_one_way();
@@ -479,9 +504,7 @@ int main()
         SSL_CTX_free(client_ctx_1w);
     }
 
-    // ------------------------------------------
     // Test 2: Two-Way (Mutual) Authentication
-    // ------------------------------------------
     {
         SSL_CTX *server_ctx_2w = create_server_context_two_way();
         SSL_CTX *client_ctx_2w = create_client_context_two_way();

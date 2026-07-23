@@ -1,59 +1,58 @@
 #include "AS.h"
 
-/// Add Skey
-void AS::AddSkey(const Skey &skey)
+/// Add Confirmation Key
+void AS::AddConfkey(const ConfKey &confKey)
 {
-    authDB.skeys.push_back(skey);
+    ast.KConfL.push_back(confKey);
 }
 
-/// Add Com
-void AS::AddCom(const Com &com)
+/// Add Password Usage Record
+void AS::AddPURec(const PwUsageRecord &pwUsageRecord)
 {
-    authDB.cml.push_back(com);
+    ast.PURecL.push_back(pwUsageRecord);
 }
 
-/// Query Skeys by SGId
-Skeys AS::QuerySkeysBySGId(int SGId) const
+/// Query Confirmation Keys by SGId
+ConfKeyList AS::QueryConfKeyListBySGId(int SGId) const
 {
-    Skeys result;
-    for (const auto &sk : authDB.skeys)
+    ConfKeyList result;
+    for (const auto &item : ast.KConfL)
     {
-        if (sk.SGId == SGId)
+        if (item.SGId == SGId)
         {
-            result.push_back(sk);
+            result.push_back(item);
         }
     }
     return result;
 }
 
-/// Query CML by SGId
-CML AS::QueryCMLBySGId(int SGId) const
+/// Query Password Usage Records by SGId
+PwUsageRecordList AS::QueryPwUsageRecordListBySGId(int SGId) const
 {
-    CML result;
-    for (const auto &com : authDB.cml)
+    PwUsageRecordList result;
+    for (const auto &item : ast.PURecL)
     {
-        if (com.SGId == SGId)
+        if (item.SGId == SGId)
         {
-            result.push_back(com);
+            result.push_back(item);
         }
     }
     return result;
 }
 
-/// Check existence and insert if not exists
-bool AS::CheckAndAddCM(const Com &com)
+/// Check password usage record existence and insert if not exists
+bool AS::CheckAndAddPURec(const PwUsageRecord &pwUsageRecord)
 {
-    for (const auto &existing : authDB.cml)
+    for (const auto &item : ast.PURecL)
     {
-        // Only SGId and UCM are used for deduplication. SCM is session-bound
-        // and may differ across sessions for the same password.
-        if (existing.SGId == com.SGId &&
-            existing.CM.UCM == com.CM.UCM)
+        // Only SGId and UCM are used for deduplication
+        if (item.SGId == pwUsageRecord.SGId &&
+            item.UCM == pwUsageRecord.UCM)
         {
             return false; // already exists
         }
     }
 
-    authDB.cml.push_back(com);
+    ast.PURecL.push_back(pwUsageRecord);
     return true;
 }

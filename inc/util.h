@@ -14,8 +14,20 @@ constexpr size_t KEY_LENGTH_BYTES = SECURITY_PARAMETER_BITS / 8;
 constexpr size_t ID_LENGTH_BYTES = 16;
 constexpr size_t SG_LENGTH_BYTES = 1;
 constexpr size_t SG_NUM = 1 << (8 * SG_LENGTH_BYTES);
-constexpr size_t EPOCH_COUNT = 4;
 constexpr size_t TOTAL_MEMBER_NUMBER = 1178;
+constexpr size_t EPOCH_COUNT = 4;
+constexpr size_t MAX_GROUP_MEMBER = 10;
+constexpr size_t DELTA_E = 300000; // 5 minutes in milliseconds
+constexpr size_t DELTA_S = 5000;
+
+/// @brief public time auxiliary information
+struct TAUX
+{
+    /// @brief Start time of the protocol in milliseconds
+    long T_s;
+    /// @brief The number of epochs for which the protocol will run
+    int E;
+};
 
 /// Public subgroup key shared by client/server when computing subgroup IDs.
 extern const unsigned char k_sg[16];

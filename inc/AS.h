@@ -4,21 +4,17 @@
 #include <vector>
 #include <string>
 
-/**
- * Shared key entry stored by the authentication server
- */
-struct Skey
+/// @brief Confirmation key
+struct ConfKey
 {
     /// Subgroup identifier
     int SGId;
 
-    /// Shared key bytes
+    /// confirmation key bytes
     std::vector<unsigned char> key;
 };
 
-/**
- * Password commitment pair
- */
+/// @brief Password commitment pair
 struct pw_CM
 {
     /// Usage-status commitment of password
@@ -28,26 +24,24 @@ struct pw_CM
     std::string SCM;
 };
 
-/**
- * Commitment entry stored by the authentication server
- */
-struct Com
+/// @brief Password usage record
+struct PwUsageRecord
 {
     /// Subgroup identifier
     int SGId;
 
-    /// Password commitment pair
-    pw_CM CM;
+    /// Usage-status commitment of password
+    std::string UCM;
 };
 
-/// Shared key collection
-using Skeys = std::vector<Skey>;
+/// Confirmation key list
+using ConfKeyList = std::vector<ConfKey>;
 
-/// Commitment list
-using CML = std::vector<Com>;
+/// Password usage record list
+using PwUsageRecordList = std::vector<PwUsageRecord>;
 
 /**
- * AS class - Stores shared keys and commitment records for subgroup authentication
+ * AS class - Stores confirmation keys and password usage record records for subgroup authentication
  */
 class AS
 {
@@ -58,44 +52,42 @@ public:
     /// Destructor
     ~AS() = default;
 
-    /// Add a shared key entry
-    /// @param[in] skey Shared key entry
-    void AddSkey(const Skey &skey);
+    /// Add a confirmation key entry
+    /// @param[in] confKey Confirmation key entry
+    void AddConfkey(const ConfKey &confKey);
 
-    /// Add a commitment entry
-    /// @param[in] com Commitment entry
-    void AddCom(const Com &com);
+    /// Add a password usage record entry
+    /// @param[in] pwUsageRecord Password usage record entry
+    void AddPURec(const PwUsageRecord &pwUsageRecord);
 
-    /// Query shared keys by SGId
+    /// Query confirmation keys by SGId
     /// @param[in] SGId Subgroup ID
-    /// @return Matching shared key entries
-    Skeys QuerySkeysBySGId(int SGId) const;
+    /// @return Matching confirmation key entries
+    ConfKeyList QueryConfKeyListBySGId(int SGId) const;
 
-    /// Query commitments by SGId
+    /// Query password usage records by SGId
     /// @param[in] SGId Subgroup ID
-    /// @return Matching commitment entries
-    CML QueryCMLBySGId(int SGId) const;
+    /// @return Matching password usage record entries
+    PwUsageRecordList QueryPwUsageRecordListBySGId(int SGId) const;
 
-    /// Check whether a commitment already exists and insert it if absent
-    /// @param[in] com Commitment entry to check
+    /// Check whether a password usage record already exists and insert it if absent
+    /// @param[in] pwUsageRecord Password usage record entry to check
     /// @return true if newly inserted, false if already exists
-    bool CheckAndAddCM(const Com &com);
+    bool CheckAndAddPURec(const PwUsageRecord &pwUsageRecord);
 
 private:
-    /**
-     * Internal authentication database
-     */
-    struct AuthDB
+    /// @brief Authentication state
+    struct AST
     {
-        /// Stored shared keys
-        Skeys skeys;
+        /// @brief The confirmation keys of its enrolled clients
+        ConfKeyList KConfL;
 
-        /// Stored commitments
-        CML cml;
+        /// @brief The accepted password usage records
+        PwUsageRecordList PURecL;
     };
 
-    /// Authentication database instance
-    AuthDB authDB;
+    /// @brief Authentication state instance
+    AST ast;
 };
 
 #endif // AS_H

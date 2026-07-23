@@ -41,22 +41,31 @@ Step 3: Build and Generate Certificates
 chmod +x setup.sh
 ./setup.sh
 ```
+**`setup.sh` performs the following:**
+1. Creates and enters the `build/` directory
+2. Runs CMake to configure the project
+3. Builds all executables (`client`, `server_RA`, `server_AS`, `verifier`, `benchmark`, `tls_benchmark`)
+4. Generates TLS certificates (`ca.crt`, `ca.key`, `AS.crt`, `AS.key`, `RA.crt`, `RA.key`, `verifier.crt`, `verifier.key`)
 
 ## How to Run
 After running `setup.sh`, the TLS executables built from `tls/client.cpp`,
-`tls/server.cpp`, and `tls/verifier.cpp` are available in the `build/`
+`tls/server_RA.cpp`, `tls/server_AS.cpp`and `tls/verifier.cpp` are available in the `build/`
 directory. Start them in the following order:
 
 ```bash
-# Terminal 1: start the server
+# Terminal 1: start the server_RA
 cd build
-./server
+./server_RA
 
-# Terminal 2: start the verifier
+# Terminal 2: start the server_AS
+cd build
+./server_AS
+
+# Terminal 3: start the verifier
 cd build
 ./verifier
 
-# Terminal 3: run the client
+# Terminal 4: run the client
 cd build
 ./client
 ```
@@ -73,7 +82,7 @@ chmod +x setup.sh
 ./setup.sh
 ```
 
-### DGTOTP Benchmark
+### DGTOTP-TLS Benchmark
 The `benchmark` executable measures the core DGTOTP and cryptographic
 operations implemented in `test/benchmark.cpp`.
 
@@ -98,12 +107,12 @@ cd build
 The TLS benchmark runs local background server threads and uses ports `4440`
 for one-way authentication and `4441` for two-way authentication. Make sure
 these ports are free before running it. Run this command from `build/` because
-the benchmark loads `ca.crt`, `server.crt`, `server.key`, `verifier.crt`, and
+the benchmark loads `ca.crt`, `AS.crt`, `AS.key`, `verifier.crt`, and
 `verifier.key` from the current directory.
 
 ## Project Structure
 ```text
-DGTOTP-TLS-main/
+DGTOTP-TLS/
 ├─ inc/            #Header files (if not shown, assumed to exist).
 
 ├─ src/            #Contains the core source files for cryptographic and utility functions.
@@ -113,6 +122,8 @@ DGTOTP-TLS-main/
 ├─ test/          # Benchmark and test source files.
 
 ├─ setup.sh       # Build script and certificate generation.
+
+├─ run_experiment.sh  # Automated experiment script
 
 ├─ CMakeLists.txt  #CMake build configuration.
 ```

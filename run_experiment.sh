@@ -48,7 +48,7 @@ for ((i=1; i<=RUN_COUNT; i++)); do
     gnome-terminal --title="Client $i" -- bash -c "stdbuf -oL ./client 2>&1 | tee '$client_log'; read" >/dev/null 2>&1 &
     
     # Wait longer for completion
-    sleep 2
+    sleep 3
     
     total_runs=$((total_runs + 1))
     

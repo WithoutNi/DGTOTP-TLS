@@ -5,7 +5,6 @@
 #include "MerkleTrees.h"
 #include "TOTP.h"
 #include "Member.h"
-#include "util.h"
 #include <cstring>
 #include <cmath>
 #include <ctime>
@@ -57,6 +56,7 @@ void RA::RASetup(int security_parameter, std::string group_name, int group_membe
 
     // Generate RA key
     unsigned char *key = DGTOTP_PRF::createKey();
+    memcpy(sk_RA, key, KEY_LENGTH_BYTES);
 
     // RA AES key cipher initialization
     ks_cipher = EVP_CIPHER_CTX_new();
@@ -612,12 +612,6 @@ void RA::cleanup()
     if (RL)
         free(RL);
 
-    // Clean OpenSSL contexts
-    if (Key_RA)
-    {
-        EVP_CIPHER_CTX_free(Key_RA);
-        Key_RA = nullptr;
-    }
     if (ks_cipher)
     {
         EVP_CIPHER_CTX_free(ks_cipher);

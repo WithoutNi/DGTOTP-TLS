@@ -17,7 +17,9 @@
 #include "DGTOTP_PRF.h"
 #include "AS.h"
 #include "RA.h"
+#ifndef UTIL_H
 #include "util.h"
+#endif
 #include "KeyGen.h"
 
 #define VERIFIER_CM_PORT 4433
@@ -159,9 +161,23 @@ std::vector<std::vector<unsigned char>> TagGen(
     return tag_collection;
 }
 
+/// The setup algorithm for authentication server
+void ASSetup(int I, AS &as)
+{
+    std::string pk_AS, sk_AS;
+    bool success = KeyGen(pk_AS, sk_AS);
+    if (!success)
+    {
+        throw std::runtime_error("Failed to generate AS keys");
+    }
+    as.SetLocalState(pk_AS, sk_AS);
+    as.InitAuthState(I);
+}
+
 int main()
 {
     AS as;
+    ASSetup(SG_NUM, as);
     SSL_CTX *ctx, *ctx1;
     int ra_sockfd, verifier_sockfd, ra_fd, verifier_fd;
     struct sockaddr_in server_as_addr, server_as_addr1;
@@ -251,8 +267,6 @@ int main()
                         confKey.SGId = sgid;
                         confKey.key = key;
                         as.AddConfkey(confKey);
-
-                        printf("Added Skey: SGId=%u, key_size=%zu\n", sgid, key.size());
                     }
 
                     // After processing ConfKeys
@@ -312,16 +326,16 @@ int main()
             {
                 buf[bytes] = '\0';
 
-                const size_t msg_prefix_len = strlen("Com:");
-                // Check if it's Com content
+                const size_t msg_prefix_len = strlen("PURec:");
+                // Check if it's PURec content
                 if (bytes >= static_cast<int>(msg_prefix_len) &&
-                    memcmp(buf, "Com:", msg_prefix_len) == 0)
+                    memcmp(buf, "PURec:", msg_prefix_len) == 0)
                 {
-                    printf("Received Com content from verifier\n");
+                    printf("Received PURec content from verifier\n");
 
                     const unsigned char *content = (const unsigned char *)(buf + msg_prefix_len);
 
-                    // extract commitment+SG from received message (Com:commitment+SG)
+                    // extract commitment+SG from received message (PURec:commitment+SG)
                     size_t content_len = bytes - msg_prefix_len;
 
                     // Save commitment+SG

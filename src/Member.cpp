@@ -4,7 +4,9 @@
 #include "ChameleonHash.h"
 #include "DGTOTP_PRF.h"
 #include "RA.h"
+#ifndef UTIL_H
 #include "util.h"
+#endif
 #include <iostream>
 #include <cstring>
 #include <sstream>
@@ -75,8 +77,8 @@ void Member::PInit(const std::string &ID, Parameter &params)
     SECRET_KEY = EVP_CIPHER_CTX_new();
     EVP_CIPHER_CTX_init(SECRET_KEY);
 
-    unsigned char key[16];
-    RAND_bytes(key, 16);
+    unsigned char key[KEY_LENGTH_BYTES];
+    RAND_bytes(key, KEY_LENGTH_BYTES);
 
     // Initialize encryption context
     key_cipher = EVP_CIPHER_CTX_new();

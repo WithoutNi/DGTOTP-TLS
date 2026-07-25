@@ -17,7 +17,9 @@
 #include "DGTOTP_PRF.h"
 #include "AS.h"
 #include "RA.h"
+#ifndef UTIL_H
 #include "util.h"
+#endif
 #include "KeyGen.h"
 
 #define SERVER_AS_IP "127.0.0.1"
@@ -144,10 +146,9 @@ void configure_mutual_auth_context(SSL_CTX *ctx)
     CHECK_SSL_VOID(iRet, "SSL_CTX_load_verify_locations");
 }
 
-// Setup initializes all subgroup RA instances and AS-side
-// secret-key seeds used to derive subgroup shared keys.
+/// The setup algorithm for registration authority.
 void RASetup(int k,
-             struct TAUX &taux,
+             struct DGTOTP::TAUX &taux,
              size_t ℓ_ep,
              int I,
              std::vector<DGTOTP> &dgtotpVec,
@@ -171,6 +172,13 @@ void RASetup(int k,
         dgtotpVec[i].RASetup(k, G[i], U, T_s, T_e, delta_e, delta_s);
     }
     sk_ske = DGTOTP_PRF::createKey();
+}
+
+std::string VerifyOpen(std::vector<DGTOTP> &dgtotpVec, const struct DGTOTP::EvidenceRecord &Evi)
+{
+    int SGId = Evi.SGId;
+    std::string openResult = dgtotpVec[SGId].Open(Evi.pw, Evi.T);
+    return openResult;
 }
 
 void sendConfKeysToAS(const std::vector<ConfKey> ConfKeys, SSL_CTX *client_ctx)
@@ -262,7 +270,7 @@ int main()
     unsigned char *sk_ske;
     ConfKeyList ConfKeys;
 
-    struct TAUX taux;
+    struct DGTOTP::TAUX taux;
     taux.T_s = sharedStartTime;
     taux.E = EPOCH_COUNT;
 
@@ -484,11 +492,12 @@ int main()
                     const long verifyTime = getCurrentTimeMillis();
                     dgtotpVec[SGId].refreshPublishedState(verifyTime);
                     int verifyResult = dgtotpVec[SGId].Verify(password, verifyTime);
+                    struct DGTOTP::EvidenceRecord Evi(password, verifyTime, SGId);
                     std::cout << "Verify result for the correct password and verify epoch: " << (verifyResult == 1 ? "success" : "failure") << std::endl;
                     std::cout << std::endl;
 
-                    std::string openResult = dgtotpVec[SGId].Open(password, verifyTime);
-                    std::cout << "Open ID for the correct password and verify epoch: " << openResult << std::endl;
+                    std::string openID = VerifyOpen(dgtotpVec, Evi);
+                    std::cout << "Open ID for the correct password and verify epoch: " << openID << std::endl;
                     std::cout << std::endl;
 
                     std::string response = "Verify result:";

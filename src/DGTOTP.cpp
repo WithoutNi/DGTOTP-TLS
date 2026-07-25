@@ -144,7 +144,7 @@ DGTOTP::JoinReceipt DGTOTP::JoinAndExportReceipt(const std::string &member_id, l
 
     JoinReceipt receipt;
     receipt.shared_key.assign(memberMaterials.join_receipt[0],
-                              memberMaterials.join_receipt[0] + 16);
+                              memberMaterials.join_receipt[0] + KEY_LENGTH_BYTES);
     receipt.alpha_bytes.assign(memberMaterials.join_receipt[1],
                                memberMaterials.join_receipt[1] + 4);
     return receipt;
@@ -155,7 +155,7 @@ void DGTOTP::ImportJoinReceipt(const std::string &member_id, const JoinReceipt &
     ensureSetup();
     MemberMaterials &memberMaterials = requireMaterials(member_id);
 
-    if (receipt.shared_key.size() != 16 || receipt.alpha_bytes.size() != 4)
+    if (receipt.shared_key.size() != KEY_LENGTH_BYTES || receipt.alpha_bytes.size() != 4)
     {
         throw std::invalid_argument("Join receipt must contain a 16-byte key and a 4-byte alpha");
     }

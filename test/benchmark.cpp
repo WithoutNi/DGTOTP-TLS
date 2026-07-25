@@ -25,7 +25,9 @@
 #include "Parameter.h"
 #include "TOTP.h"
 #include "cycles.h"
+#ifndef UTIL_H
 #include "util.h"
+#endif
 #include "KeyGen.h"
 
 #define NTESTS 10
@@ -174,7 +176,7 @@ static std::string makeMemberId(size_t index)
 }
 
 static void RASetup(int k,
-                    struct TAUX &taux,
+                    struct DGTOTP::TAUX &taux,
                     size_t ℓ_ep,
                     int I,
                     std::vector<DGTOTP> &dgtotpVec,
@@ -198,6 +200,19 @@ static void RASetup(int k,
         dgtotpVec[i].RASetup(k, G[i], U, T_s, T_e, delta_e, delta_s);
     }
     sk_ske = DGTOTP_PRF::createKey();
+}
+
+/// The setup algorithm for authentication server
+void ASSetup(int I, AS &as)
+{
+    std::string pk_AS, sk_AS;
+    bool success = KeyGen(pk_AS, sk_AS);
+    if (!success)
+    {
+        throw std::runtime_error("Failed to generate AS keys");
+    }
+    as.SetLocalState(pk_AS, sk_AS);
+    as.InitAuthState(I);
 }
 
 static std::vector<std::vector<unsigned char>> TagGen(
@@ -368,6 +383,13 @@ static int CMVerify(const unsigned char *msg,
     return memcmp(com, serializedCommitment.data(), com_len) == 0 ? 1 : 0;
 }
 
+std::string VerifyOpen(std::vector<DGTOTP> &dgtotpVec, const struct DGTOTP::EvidenceRecord &Evi)
+{
+    int SGId = Evi.SGId;
+    std::string openResult = dgtotpVec[SGId].Open(Evi.pw, Evi.T);
+    return openResult;
+}
+
 struct TLS13AeadCiphertext
 {
     std::vector<unsigned char> tls_header; // 5 bytes, used as AAD
@@ -378,7 +400,7 @@ struct TLS13AeadCiphertext
 /**
  * TLS 1.3-like AES-128-GCM encryption.
  *
- * payload:      application plaintext, e.g., Com = 69 bytes
+ * payload:      application plaintext, e.g., 64 bytes
  * content_type: TLSInnerPlaintext content type, usually 0x17 for application_data
  * tls_header:   5-byte TLS record header, used as AAD
  * key:          16-byte AES-128 key
@@ -470,7 +492,7 @@ int main()
     const long sharedStartTime = getCurrentTimeMillis();
     const int securityParameter = SECURITY_PARAMETER_BITS;
     const int subgroupCount = SG_NUM;
-    const int groupMemberCount = 64;
+    const int groupMemberCount = MAX_GROUP_MEMBER;
     const int verificationPeriod = DELTA_E;
     const int passwordGenerationPeriod = DELTA_S;
     const long endTime = sharedStartTime + EPOCH_COUNT * verificationPeriod;
@@ -534,7 +556,7 @@ int main()
         mpz_set_ui(mod_exponent, 1);
     }
 
-    const size_t tls13_payload_len = 69;
+    const size_t tls13_payload_len = 64;
     const unsigned char tls13_content_type = 0x17;
     const unsigned char tls13_header[5] = {
         0x17, 0x03, 0x03, 0x00,
@@ -562,11 +584,11 @@ int main()
     printf("Running %d iterations.\n", NTESTS);
     fprintf(fp, "DGTOTP benchmark\n");
     fprintf(fp, "iterations=%d\n", NTESTS);
-    printf("Parameters: k = %ld, m = %ld, U = %d, T_s = %ld,  T_e = %ld, delta_e = %d, delta_s = %d\n",
-           SECURITY_PARAMETER_BITS, SG_NUM, groupMemberCount,
+    printf("Parameters: k = %ld, m = %ld, U = %d, E=%ld, T_s = %ld,  T_e = %ld, delta_e = %d, delta_s = %d\n",
+           SECURITY_PARAMETER_BITS, SG_NUM, groupMemberCount, EPOCH_COUNT,
            sharedStartTime, endTime, verificationPeriod, passwordGenerationPeriod);
-    fprintf(fp, "k = %ld, m = %ld, U = %d, T_s = %ld,  T_e = %ld, delta_e = %d, delta_s = %d\n",
-            SECURITY_PARAMETER_BITS, SG_NUM, groupMemberCount,
+    fprintf(fp, "k = %ld, m = %ld, U = %d, E=%ld, T_s = %ld,  T_e = %ld, delta_e = %d, delta_s = %d\n",
+            SECURITY_PARAMETER_BITS, SG_NUM, groupMemberCount, EPOCH_COUNT,
             sharedStartTime, endTime, verificationPeriod, passwordGenerationPeriod);
 
     TLS13AeadCiphertext tls13_ciphertext;
@@ -636,35 +658,8 @@ int main()
     });
     save_result(fp, "Inv", t, NTESTS);
 
-    std::vector<ChameleonHash> chVec(NTESTS);
-
-    MEASURE("CHs..", 1, chVec[i].Setup(ch_rk));
-    save_result(fp, "CHs", t, NTESTS);
-
-    MEASURE("CHe..", 1, {
-        ch_hash = chVec[i].eval(ch_msg1, sizeof(ch_msg1), chVec[i].getPk(), ch_rand, sizeof(ch_rand));
-    });
-    save_result(fp, "CHe", t, NTESTS);
-
-    MEASURE("CHc..", 1, {
-        unsigned char *ch_collision = chVec[i].Collision(ch_msg1, sizeof(ch_msg1),
-                                                         ch_rand, sizeof(ch_rand),
-                                                         ch_msg2, sizeof(ch_msg2),
-                                                         chVec[i].getSk());
-        free(ch_collision);
-    });
-    save_result(fp, "CHc", t, NTESTS);
-
-    // Generate verifier certificate and key if they don't exist
-    std::string key_file = "test.key";
-    std::string cert_file = "test.crt";
-    MEASURE("KeyGen..", 1, GenerateKeyAndCertificate(key_file, cert_file));
-    save_result(fp, "KeyGen", t, NTESTS);
-
     DGTOTP dgtotp;
-    MEASURE("dgtotp.RASetup..", 1, dgtotp.RASetup(securityParameter, "dgtotp", groupMemberCount, sharedStartTime, endTime, verificationPeriod, passwordGenerationPeriod));
-    save_result(fp, "dgtotp.RASetup", t, NTESTS);
-
+    dgtotp.RASetup(securityParameter, "dgtotp", groupMemberCount, sharedStartTime, endTime, verificationPeriod, passwordGenerationPeriod);
     unsigned int permutation_seed = 0;
     RAND_bytes(reinterpret_cast<unsigned char *>(&permutation_seed), sizeof(permutation_seed));
     std::vector<int> permutation_result;
@@ -673,10 +668,14 @@ int main()
     });
     save_result(fp, "PM", t, NTESTS);
 
+    std::string pk, sk;
+    MEASURE("KeyGen..", 1, KeyGen(pk, sk));
+    save_result(fp, "KeyGen", t, NTESTS);
+
     std::vector<DGTOTP> dgtotpVec(SG_NUM);
     unsigned char *setupSkSke = nullptr;
 
-    struct TAUX taux;
+    struct DGTOTP::TAUX taux;
     taux.T_s = sharedStartTime;
     taux.E = EPOCH_COUNT;
 
@@ -687,7 +686,11 @@ int main()
         }
         RASetup(securityParameter, taux, DELTA_E, SG_NUM, dgtotpVec, setupSkSke);
     });
-    save_result(fp, "Setup", t, NTESTS);
+    save_result(fp, "RASetup", t, NTESTS);
+
+    AS as;
+    MEASURE("ASSetup..", 1, ASSetup(SG_NUM, as));
+    save_result(fp, "ASSetup", t, NTESTS);
 
     std::vector<std::string> memberIds(NTESTS);
     std::vector<int> memberSGIds(NTESTS);
@@ -708,7 +711,6 @@ int main()
     save_result(fp, "Join", t, NTESTS);
 
     std::vector<std::vector<unsigned char>> kiVec(NTESTS);
-    AS as;
     for (size_t j = 0; j < memberIds.size(); ++j)
     {
         ConfKey confKey;
@@ -804,12 +806,17 @@ int main()
     });
     save_result(fp, "PwVerify", t, NTESTS);
 
+    std::vector<DGTOTP::EvidenceRecord> evidenceRecords(NTESTS);
+    for (size_t j = 0; j < NTESTS; ++j)
+    {
+        evidenceRecords[j] = DGTOTP::EvidenceRecord(passwords[j], protocolTime, memberSGIds[j]);
+    }
     std::vector<std::string> openedIds(NTESTS);
 
-    MEASURE("Open..", 1, {
-        openedIds[i] = dgtotpVec[memberSGIds[i]].Open(passwords[i], protocolTime);
+    MEASURE("VerifyOpen..", 1, {
+        openedIds[i] = VerifyOpen(dgtotpVec, evidenceRecords[i]);
     });
-    save_result(fp, "Open", t, NTESTS);
+    save_result(fp, "VerifyOpen", t, NTESTS);
     const size_t openEmptyCount = std::count(openedIds.begin(), openedIds.end(), "");
 
     std::vector<int> revokeResults(NTESTS, 0);

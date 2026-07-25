@@ -4,7 +4,9 @@
 #include <vector>
 
 #include "DGTOTP.h"
+#ifndef UTIL_H
 #include "util.h"
+#endif
 
 void testDGTOTP(int instanceCount)
 {

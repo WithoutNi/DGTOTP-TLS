@@ -4,7 +4,9 @@
 #include "MerkleTrees.h"
 #include "TOTP.h"
 #include "Member.h"
+#ifndef UTIL_H
 #include "util.h"
+#endif
 #include <cstring>
 #include <ctime>
 #include <cmath>

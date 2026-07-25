@@ -29,6 +29,19 @@ bool generateECKey(EVP_PKEY **pkey);
 /// @return: true on success, false on failure
 bool savePrivateKeyToFile(EVP_PKEY *pkey, const std::string &filename);
 
+/// @brief Extract public and private keys from an EVP_PKEY structure
+/// @param[in] pkey The EVP_PKEY structure to extract keys from
+/// @param[out] pk Output parameter for the public key
+/// @param[out] sk Output parameter for the private key
+/// @return true on success, false on failure
+bool extractKeyPair(EVP_PKEY *pkey, std::string &pk, std::string &sk);
+
+/// Key pair generation algorithm as defined in paper syntax: KeyGen(1^λ) → (pk, sk)
+/// @param[out] pk Output public key (PEM format)
+/// @param[out] sk Output private key (PEM format)
+/// @return true on success, false on failure
+bool KeyGen(std::string &pk, std::string &sk);
+
 /// Check if a file exists
 /// @param[in] filename: File to check
 /// @return: true if file exists, false otherwise
@@ -45,12 +58,6 @@ bool loadPrivateKey(const std::string &filename, EVP_PKEY **pkey);
 /// @param[out] cert: Output parameter for the loaded certificate
 /// @return: true on success, false on failure
 bool loadCertificate(const std::string &filename, X509 **cert);
-
-/// Load CA private key from PEM file
-/// @param[in] filename: Input filename
-/// @param[out] pkey: Output parameter for the loaded key
-/// @return: true on success, false on failure
-bool loadPrivateKeyCA(const std::string &filename, EVP_PKEY **pkey);
 
 /// Sign certificate using CA (no CSR file needed)
 /// @param[in] pkey: The private key to be signed into certificate

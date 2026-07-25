@@ -13,6 +13,38 @@
 #include <openssl/err.h>
 #include <openssl/rand.h>
 #include <openssl/bn.h>
+#include <openssl/bio.h>
+
+// ============================================================
+// Helper functions for extractKeyPair
+// ============================================================
+
+static bool writeKeyToBio(EVP_PKEY *pkey, BIO *bio, bool is_private)
+{
+    if (is_private)
+    {
+        return PEM_write_bio_PrivateKey(bio, pkey, nullptr, nullptr, 0, nullptr, nullptr) > 0;
+    }
+    else
+    {
+        return PEM_write_bio_PUBKEY(bio, pkey) > 0;
+    }
+}
+
+static std::string bioToString(BIO *bio)
+{
+    char *data = nullptr;
+    long len = BIO_get_mem_data(bio, &data);
+    if (len > 0 && data)
+    {
+        return std::string(data, len);
+    }
+    return "";
+}
+
+// ============================================================
+// EC Key Generation
+// ============================================================
 
 bool generateECKey(EVP_PKEY **pkey)
 {
@@ -53,6 +85,94 @@ bool savePrivateKeyToFile(EVP_PKEY *pkey, const std::string &filename)
     return result;
 }
 
+// ============================================================
+// Key Pair Extraction
+// ============================================================
+
+bool extractKeyPair(EVP_PKEY *pkey, std::string &pk, std::string &sk)
+{
+    if (!pkey)
+    {
+        return false;
+    }
+
+    // Check if it's an EC key
+    if (EVP_PKEY_base_id(pkey) != EVP_PKEY_EC)
+    {
+        return false;
+    }
+
+    // Extract private key (SK)
+    BIO *sk_bio = BIO_new(BIO_s_mem());
+    if (!sk_bio)
+    {
+        return false;
+    }
+
+    if (!writeKeyToBio(pkey, sk_bio, true))
+    {
+        BIO_free(sk_bio);
+        return false;
+    }
+
+    sk = bioToString(sk_bio);
+    BIO_free(sk_bio);
+
+    if (sk.empty())
+    {
+        return false;
+    }
+
+    // Extract public key (PK)
+    BIO *pk_bio = BIO_new(BIO_s_mem());
+    if (!pk_bio)
+    {
+        return false;
+    }
+
+    if (!writeKeyToBio(pkey, pk_bio, false))
+    {
+        BIO_free(pk_bio);
+        return false;
+    }
+
+    pk = bioToString(pk_bio);
+    BIO_free(pk_bio);
+
+    if (pk.empty())
+    {
+        return false;
+    }
+
+    return true;
+}
+
+bool KeyGen(std::string &pk, std::string &sk)
+{
+    EVP_PKEY *pkey = nullptr;
+
+    if (!generateECKey(&pkey))
+    {
+        std::cerr << "KeyGen: Failed to generate EC key" << std::endl;
+        return false;
+    }
+
+    bool result = extractKeyPair(pkey, pk, sk);
+    EVP_PKEY_free(pkey);
+
+    if (!result)
+    {
+        std::cerr << "KeyGen: Failed to extract key pair" << std::endl;
+        return false;
+    }
+
+    return true;
+}
+
+// ============================================================
+// File Operations
+// ============================================================
+
 bool fileExists(const std::string &filename)
 {
     struct stat buffer;
@@ -81,16 +201,9 @@ bool loadCertificate(const std::string &filename, X509 **cert)
     return (*cert != nullptr);
 }
 
-bool loadPrivateKeyCA(const std::string &filename, EVP_PKEY **pkey)
-{
-    BIO *bio = BIO_new_file(filename.c_str(), "r");
-    if (!bio)
-        return false;
-
-    *pkey = PEM_read_bio_PrivateKey(bio, nullptr, nullptr, nullptr);
-    BIO_free(bio);
-    return (*pkey != nullptr);
-}
+// ============================================================
+// Certificate Signing
+// ============================================================
 
 bool signCertificate(EVP_PKEY *pkey,
                      const std::string &cert_filename,
@@ -103,13 +216,15 @@ bool signCertificate(EVP_PKEY *pkey,
     X509 *ca_cert = nullptr;
     if (!loadCertificate(ca_cert_filename, &ca_cert))
     {
+        std::cerr << "Failed to load CA certificate: " << ca_cert_filename << std::endl;
         return false;
     }
 
     // Load CA private key
     EVP_PKEY *ca_pkey = nullptr;
-    if (!loadPrivateKeyCA(ca_key_filename, &ca_pkey))
+    if (!loadPrivateKey(ca_key_filename, &ca_pkey))
     {
+        std::cerr << "Failed to load CA private key: " << ca_key_filename << std::endl;
         X509_free(ca_cert);
         return false;
     }
@@ -196,6 +311,7 @@ bool signCertificate(EVP_PKEY *pkey,
     // Sign certificate with CA private key
     if (X509_sign(cert, ca_pkey, EVP_sha256()) <= 0)
     {
+        std::cerr << "Failed to sign certificate" << std::endl;
         X509_free(cert);
         X509_free(ca_cert);
         EVP_PKEY_free(ca_pkey);
@@ -222,6 +338,10 @@ bool signCertificate(EVP_PKEY *pkey,
 
     return result;
 }
+
+// ============================================================
+// Combined Function
+// ============================================================
 
 bool GenerateKeyAndCertificate(const std::string &key_filename,
                                const std::string &cert_filename,

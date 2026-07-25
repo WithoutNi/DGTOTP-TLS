@@ -21,7 +21,9 @@
 #include "RA.h"
 #include "Verifier.h"
 #include "DGTOTP_PRF.h"
+#ifndef UTIL_H
 #include "util.h"
+#endif
 #include "KeyGen.h"
 
 #define CLIENT_PORT 4434

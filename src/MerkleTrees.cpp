@@ -1,7 +1,9 @@
 #include "MerkleTrees.h"
 #include "Parameter.h"
 #include "Member.h"
+#ifndef UTIL_H
 #include "util.h"
+#endif
 #include <cmath>
 #include <algorithm>
 

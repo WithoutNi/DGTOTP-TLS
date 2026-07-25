@@ -79,6 +79,33 @@ public:
         void resetJoinReceipt();
     };
 
+    /// @brief public time auxiliary information
+    struct TAUX
+    {
+        /// @brief Start time of the protocol in milliseconds
+        long T_s;
+        /// @brief The number of epochs for which the protocol will run
+        int E;
+    };
+
+    /// @brief evidence record
+    struct EvidenceRecord
+    {
+        /// @brief DGTOTP Password tuple
+        DGTOTP::Password pw;
+        /// @brief Timestamp when the evidence was created
+        long T;
+        /// @brief Subgroup ID
+        int SGId;
+
+        // Default constructor
+        EvidenceRecord() : T(0), SGId(-1) {}
+
+        // Parameterized constructor
+        EvidenceRecord(const DGTOTP::Password &password, long timestamp, int sgId)
+            : pw(password), T(timestamp), SGId(sgId) {}
+    };
+
     /// Constructor
     DGTOTP();
 

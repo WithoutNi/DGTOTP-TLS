@@ -1,6 +1,8 @@
 #include "DGTOTP_PRF.h"
 #include "Parameter.h"
+#ifndef UTIL_H
 #include "util.h"
+#endif
 #include <cstring>
 #include <openssl/rand.h>
 #include <openssl/evp.h>
@@ -14,8 +16,8 @@ unsigned char *DGTOTP_PRF::createKey()
     OpenSSL_add_all_algorithms();
 
     // Generate key
-    unsigned char *key = (unsigned char *)malloc(16); // 128-bit AES key
-    RAND_bytes(key, 16);
+    unsigned char *key = (unsigned char *)malloc(KEY_LENGTH_BYTES); // 128-bit AES key
+    RAND_bytes(key, KEY_LENGTH_BYTES);
 
     return key;
 }

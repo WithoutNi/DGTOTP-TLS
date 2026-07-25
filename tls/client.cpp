@@ -13,7 +13,9 @@
 
 #include "DGTOTP.h"
 #include "DGTOTP_PRF.h"
+#ifndef UTIL_H
 #include "util.h"
+#endif
 
 #define VERIFIER_IP "127.0.0.1"
 #define SERVER_RA_IP "127.0.0.1"

@@ -6,6 +6,9 @@
 #include <openssl/evp.h>
 #include <openssl/ec.h>
 #include <cmath>
+#ifndef UTIL_H
+#include "util.h"
+#endif
 
 // Forward declaration
 class Parameter;
@@ -116,8 +119,8 @@ private:
     /// Permutation key bytes
     unsigned char *KEY_PERMUTATION = nullptr;
 
-    /// RA's key context
-    EVP_CIPHER_CTX *Key_RA = nullptr;
+    /// RA's secret key
+    unsigned char sk_RA[KEY_LENGTH_BYTES] = {0};
 
     /// Merkle tree root proof (per member)
     std::vector<std::vector<std::string>> merkle_proof;

@@ -75,19 +75,42 @@ public:
     /// @return true if newly inserted, false if already exists
     bool CheckAndAddPURec(const PwUsageRecord &pwUsageRecord);
 
+    /// Initialize the authentication state of the server
+    /// @param[in] I the number of subgroups
+    /// @return true on success, false on failure
+    void InitAuthState(int I);
+
+    /// Set the local state of the authentication server
+    /// @param[in] pk_AS Public key of the authentication server
+    /// @param[in] sk_AS Private key of the authentication server
+    /// @return true on success, false on failure
+    void SetLocalState(const std::string &pk_AS, const std::string &sk_AS);
+
 private:
     /// @brief Authentication state
-    struct AST
+    struct AuthState
     {
         /// @brief The confirmation keys of its enrolled clients
-        ConfKeyList KConfL;
+        std::vector<ConfKeyList> KConfL;
 
         /// @brief The accepted password usage records
-        PwUsageRecordList PURecL;
+        std::vector<PwUsageRecordList> PURecL;
+    };
+
+    /// @brief The long term local state of the authentication server
+    struct LocalState
+    {
+        /// @brief public key of the authentication server
+        std::string pk_AS;
+
+        /// @brief private key of the authentication server
+        std::string sk_AS;
     };
 
     /// @brief Authentication state instance
-    AST ast;
+    AuthState AST;
+    /// @brief Local state instance
+    LocalState LSt;
 };
 
 #endif // AS_H

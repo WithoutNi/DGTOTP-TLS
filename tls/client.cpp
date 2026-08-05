@@ -351,7 +351,7 @@ int main()
         }
 
         // Maintain connection and continuously receive responses
-        unsigned char buf[BUFFER_SIZE];
+        unsigned char buf[2 * BUFFER_SIZE];
         bool keep_connection = true;
 
         while (keep_connection)
@@ -360,7 +360,7 @@ int main()
             if (bytes > 0)
             {
                 buf[bytes] = '\0';
-                printf("Verifier response: \n");
+                printf("Verifier response: %d bytes(%d tags)\n", bytes, bytes / 16);
                 for (int i = 0; i < bytes; i++)
                 {
                     printf("%02X ", buf[i]);

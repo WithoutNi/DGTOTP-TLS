@@ -372,6 +372,16 @@ int main()
                         buffer.insert(buffer.end(), tag.begin(), tag.end());
                     }
 
+                    // Pad to fixed length: 16 * MAX_GROUP_MEMBER
+                    const size_t FIXED_LEN = 16 * MAX_GROUP_MEMBER;
+                    if (buffer.size() < FIXED_LEN)
+                    {
+                        // Generate random padding data
+                        std::vector<unsigned char> padding(FIXED_LEN - buffer.size());
+                        RAND_bytes(padding.data(), padding.size());
+                        buffer.insert(buffer.end(), padding.begin(), padding.end());
+                    }
+
                     // Send tags
                     SSL_write(verifier_ssl, buffer.data(), buffer.size());
                     printf("Sent compute tags to verifier\n");

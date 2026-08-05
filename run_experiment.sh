@@ -17,6 +17,22 @@ total_runs=0
 success_count=0
 log_dir=$(mktemp -d)
 
+wait_for_log() {
+    local log_file="$1"
+    local search_pattern="$2"
+    local timeout_seconds="${3:-600}"
+    local elapsed=0
+    
+    while [[ $elapsed -lt $timeout_seconds ]]; do
+        if grep -q "$search_pattern" "$log_file" 2>/dev/null; then
+            return 0
+        fi
+        sleep 1
+        elapsed=$((elapsed + 1))
+    done
+    return 1
+}
+
 {
     echo "Experiment started: $(date)"
     echo "Total runs: $RUN_COUNT"
@@ -35,19 +51,30 @@ for ((i=1; i<=RUN_COUNT; i++)); do
     > "$verifier_log"
     > "$client_log"
     
-    # Start processes with unbuffered output
+    # Start Server_RA first
     gnome-terminal --title="Server_RA $i" -- bash -c "stdbuf -oL ./server_RA 2>&1 | tee '$server_ra_log'; read" >/dev/null 2>&1 &
-    sleep 2
     
+    # Wait for Server_RA to be ready
+    echo "  Waiting for Server_RA to initialize (this may take several minutes)..."
+    if wait_for_log "$server_ra_log" "TLS 1.3 Server listening on port 4435" 600; then
+        echo "  Server_RA is ready"
+    else
+        echo "  ERROR: Server_RA initialization timeout or failed to start" | tee -a "$REPORT_FILE"
+        ...
+    fi
+    
+    # Start Server_AS
     gnome-terminal --title="Server_AS $i" -- bash -c "stdbuf -oL ./server_AS 2>&1 | tee '$server_as_log'; read" >/dev/null 2>&1 &
     sleep 2
     
+    # Start Verifier
     gnome-terminal --title="Verifier $i" -- bash -c "stdbuf -oL ./verifier 2>&1 | tee '$verifier_log'; read" >/dev/null 2>&1 &
     sleep 2
     
+    # Start Client
     gnome-terminal --title="Client $i" -- bash -c "stdbuf -oL ./client 2>&1 | tee '$client_log'; read" >/dev/null 2>&1 &
     
-    # Wait longer for completion
+    # Wait for completion
     sleep 3
     
     total_runs=$((total_runs + 1))
